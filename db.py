@@ -1,8 +1,14 @@
 from sqlmodel import SQLModel, create_engine, Session
 
-DATABASE_URL = "sqlite:///antigravity.db"
+# ✅ CLEAN DB RESET — single source of truth
+# Only itsyou_clean.db must be used everywhere in this project
+DATABASE_URL = "sqlite:///./itsyou_clean.db"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    echo=False
+)
 
 def init_db():
     SQLModel.metadata.create_all(engine)
