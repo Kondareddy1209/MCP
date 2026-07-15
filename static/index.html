@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity — Personal Intelligence Dashboard</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="stars-bg"></div>
+    <div class="glowing-orb orb-1"></div>
+    <div class="glowing-orb orb-2"></div>
+
+    <div class="dashboard-container">
+        <!-- HEADER -->
+        <header class="glass-header">
+            <div class="logo-area">
+                <span class="logo-icon"><i class="fa-solid fa-atom fa-spin"></i></span>
+                <div class="logo-text">
+                    <h1>ANTIGRAVITY</h1>
+                    <p class="tagline">Personal Intelligence & Analytics Engine</p>
+                </div>
+            </div>
+            <div class="header-controls">
+                <div class="time-widget">
+                    <span id="current-time"><i class="fa-regular fa-clock"></i> --:--:--</span>
+                </div>
+                <div class="filter-dropdown">
+                    <i class="fa-solid fa-calendar-days dropdown-icon"></i>
+                    <select id="date-range-select">
+                        <option value="1">Today</option>
+                        <option value="7" selected>Last 7 Days</option>
+                        <option value="30">Last 30 Days</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- METRIC CARDS -->
+        <section class="metrics-grid">
+            <!-- Card 1: Productivity -->
+            <div class="metric-card glass-card border-neon-green">
+                <div class="card-header">
+                    <h3>Productivity Score</h3>
+                    <div class="card-icon icon-green"><i class="fa-solid fa-brain"></i></div>
+                </div>
+                <div class="card-body">
+                    <div class="score-container">
+                        <div class="circular-progress-placeholder">
+                            <span class="score-value" id="productivity-val">--%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <span class="footer-trend text-green"><i class="fa-solid fa-arrow-trend-up"></i> Focus efficiency</span>
+                </div>
+            </div>
+
+            <!-- Card 2: Screen Time -->
+            <div class="metric-card glass-card border-neon-blue">
+                <div class="card-header">
+                    <h3>Screen Time</h3>
+                    <div class="card-icon icon-blue"><i class="fa-solid fa-hourglass-half"></i></div>
+                </div>
+                <div class="card-body">
+                    <h2 class="metric-val" id="screen-time-val">-- hrs</h2>
+                    <div class="screen-split">
+                        <span id="laptop-time-split"><i class="fa-solid fa-laptop"></i> Laptop: --h</span>
+                        <span id="mobile-time-split"><i class="fa-solid fa-mobile-screen-button"></i> Mobile: --h</span>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <span class="footer-trend text-blue"><i class="fa-solid fa-circle-notch"></i> Multi-device total</span>
+                </div>
+            </div>
+
+            <!-- Card 3: Distraction Cost -->
+            <div class="metric-card glass-card border-neon-rose">
+                <div class="card-header">
+                    <h3>Distraction Cost</h3>
+                    <div class="card-icon icon-rose"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                </div>
+                <div class="card-body">
+                    <h2 class="metric-val text-glow-rose" id="distraction-cost-val">--</h2>
+                    <p class="cost-subtext">Wasted time converted at your hourly rate</p>
+                </div>
+                <div class="card-footer">
+                    <span class="footer-trend text-rose" id="hourly-rate-footer"><i class="fa-solid fa-indian-rupee-sign"></i> --/hr rate</span>
+                </div>
+            </div>
+
+            <!-- Card 4: Financial Spending -->
+            <div class="metric-card glass-card border-neon-purple">
+                <div class="card-header">
+                    <h3>Total Expenses</h3>
+                    <div class="card-icon icon-purple"><i class="fa-solid fa-wallet"></i></div>
+                </div>
+                <div class="card-body">
+                    <h2 class="metric-val" id="expenses-val">--</h2>
+                    <p class="cost-subtext">Active financial logging</p>
+                </div>
+                <div class="card-footer">
+                    <span class="footer-trend text-purple"><i class="fa-solid fa-receipt"></i> Tracking enabled</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- BRAIN INSIGHTS BOX -->
+        <section class="insights-section glass-card">
+            <div class="insights-header">
+                <h2><i class="fa-solid fa-lightbulb icon-glow-yellow"></i> AI Brain Insights & Recommendations</h2>
+            </div>
+            <div class="insights-body">
+                <div class="insight-row">
+                    <div class="insight-item">
+                        <span class="insight-label">Biggest Time Waster:</span>
+                        <span class="insight-content badge badge-rose" id="insight-time-waster">--</span>
+                    </div>
+                    <div class="insight-item">
+                        <span class="insight-label">Top Spending Category:</span>
+                        <span class="insight-content badge badge-purple" id="insight-spending">--</span>
+                    </div>
+                </div>
+                <div class="insight-recommendation">
+                    <p class="recommendation-header"><i class="fa-solid fa-robot"></i> Suggestion:</p>
+                    <p class="recommendation-text" id="insight-suggestion">Loading intelligence insights...</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- CHARTS SECTION -->
+        <section class="charts-grid">
+            <!-- Chart 1: Daily Screen Time -->
+            <div class="chart-card glass-card">
+                <div class="chart-header">
+                    <h2><i class="fa-solid fa-chart-bar"></i> Daily Screen Time</h2>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="screenTimeChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 2: Expenses Category -->
+            <div class="chart-card glass-card">
+                <div class="chart-header">
+                    <h2><i class="fa-solid fa-chart-pie"></i> Expense Breakdown</h2>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="expenseChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- BOTTOM GRID: TOP APPS AND INPUT FORMS -->
+        <section class="bottom-grid">
+            <!-- Column 1: Top Apps list -->
+            <div class="bottom-card glass-card list-card">
+                <div class="card-section-header">
+                    <h2><i class="fa-solid fa-list-ol"></i> App Usage Rankings</h2>
+                    <div class="classification-toggle">
+                        <button class="tab-btn active" id="btn-productive">Productive</button>
+                        <button class="tab-btn" id="btn-distracting">Distracting</button>
+                    </div>
+                </div>
+                <div class="rankings-list" id="rankings-container">
+                    <div class="loading-placeholder">Fetching ranked logs...</div>
+                </div>
+            </div>
+
+            <!-- Column 2: Actions Forms -->
+            <div class="bottom-card glass-card action-forms-card">
+                <div class="forms-header">
+                    <h2><i class="fa-solid fa-circle-plus"></i> Management Console</h2>
+                </div>
+                
+                <div class="form-tabs">
+                    <button class="form-tab-btn active" onclick="switchForm('form-expense')">Add Expense</button>
+                    <button class="form-tab-btn" onclick="switchForm('form-class')">Classify App</button>
+                    <button class="form-tab-btn" onclick="switchForm('form-screen')">Log Screen Time</button>
+                </div>
+
+                <!-- Form: Add Expense -->
+                <form id="form-expense" class="action-form active">
+                    <div class="form-group">
+                        <label for="exp-amount">Amount</label>
+                        <input type="number" id="exp-amount" step="0.01" required placeholder="e.g. 500">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="exp-category">Category</label>
+                            <select id="exp-category">
+                                <option value="food">Food</option>
+                                <option value="subscriptions">Subscriptions</option>
+                                <option value="utilities">Utilities</option>
+                                <option value="entertainment">Entertainment</option>
+                                <option value="transport">Transport</option>
+                                <option value="others">Others</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="exp-date">Date</label>
+                            <input type="date" id="exp-date" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="exp-desc">Description</label>
+                        <input type="text" id="exp-desc" placeholder="e.g. Netflix subscription">
+                    </div>
+                    <button type="submit" class="submit-btn"><i class="fa-solid fa-paper-plane"></i> Log Expense</button>
+                </form>
+
+                <!-- Form: Classify App -->
+                <form id="form-class" class="action-form">
+                    <div class="form-group">
+                        <label for="cls-app-name">App Name</label>
+                        <input type="text" id="cls-app-name" required placeholder="e.g. YouTube">
+                    </div>
+                    <div class="form-group">
+                        <label for="cls-type">Classification</label>
+                        <select id="cls-type">
+                            <option value="productive">Productive</option>
+                            <option value="distracting">Distracting</option>
+                            <option value="neutral">Neutral</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="submit-btn"><i class="fa-solid fa-save"></i> Save Classification</button>
+                </form>
+
+                <!-- Form: Log Screen Time -->
+                <form id="form-screen" class="action-form">
+                    <div class="form-group">
+                        <label for="scr-seconds">Duration (seconds)</label>
+                        <input type="number" id="scr-seconds" required placeholder="e.g. 7200 (for 2 hrs)">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="scr-device">Device</label>
+                            <select id="scr-device">
+                                <option value="mobile">Mobile</option>
+                                <option value="laptop">Laptop</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="scr-date">Date</label>
+                            <input type="date" id="scr-date" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="submit-btn"><i class="fa-solid fa-circle-check"></i> Save Record</button>
+                </form>
+                
+                <div id="form-message" class="form-alert hidden"></div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

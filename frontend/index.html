@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>it'syou — Behavioral Intelligence Platform</title>
+    <!-- Outfit Google Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <!-- Background glowing layers -->
+    <div class="orb-bg orb-1"></div>
+    <div class="orb-bg orb-2"></div>
+
+    <!-- Loading spinner overlay -->
+    <div id="loading" class="loading-overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <div class="dashboard-container">
+        <!-- HEADER -->
+        <header class="glass-header">
+            <div class="logo-area">
+                <span class="logo-icon"><i class="fa-solid fa-atom"></i></span>
+                <div class="logo-text">
+                    <h1>IT'SYOU</h1>
+                    <p>Behavioral Intelligence & Attention Audit System</p>
+                </div>
+            </div>
+            <div class="header-controls">
+                <div class="filter-dropdown">
+                    <select id="days-range-select">
+                        <option value="1" selected>Today</option>
+                        <option value="7">Last 7 Days</option>
+                        <option value="30">Last 30 Days</option>
+                    </select>
+
+                </div>
+            </div>
+        </header>
+
+        <!-- LIVE ACTIVITY PANEL -->
+        <section id="live-activity-section" class="glass-card live-activity-bar">
+            <div class="activity-info">
+                <div id="activity-pulse-el" class="activity-pulse pulse-blue"></div>
+                <div class="active-details">
+                    <h4>Current Foreground Session</h4>
+                    <p id="live-app-name">Retrieving active session...</p>
+                    <div id="live-window-title" class="active-window-title">Initializing...</div>
+                </div>
+            </div>
+            <div class="activity-meta">
+                <span id="live-state-badge" class="status-badge badge-neutral">UNKNOWN</span>
+            </div>
+        </section>
+
+        <!-- METRICS GRID -->
+        <section class="metrics-grid">
+            <!-- Metric: Productivity Score -->
+            <div class="glass-card metric-card border-green">
+                <h3>Productivity score</h3>
+                <div class="value" id="productivity-val">--%</div>
+                <div class="subtitle">Focus weighted index</div>
+            </div>
+
+            <!-- Metric: Focus Efficiency -->
+            <div class="glass-card metric-card border-blue">
+                <h3>Focus Efficiency</h3>
+                <div class="value" id="focus-val">--%</div>
+                <div class="subtitle">Contiguous deep sessions</div>
+            </div>
+
+            <!-- Metric: Burnout score -->
+            <div class="glass-card metric-card border-orange" id="burnout-card">
+                <h3>Burnout Index</h3>
+                <div class="value" id="burnout-val">--/100</div>
+                <div class="subtitle" id="burnout-risk-val">Risk Category: --</div>
+                <div id="burnout-warn-icon" class="alert-indicator indicator-red hidden">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+            </div>
+
+            <!-- Metric: Distraction Cost -->
+            <div class="glass-card metric-card border-rose">
+                <h3>Distraction Cost</h3>
+                <div class="value" id="cost-val">--</div>
+                <div class="subtitle">Potential hourly wage loss</div>
+            </div>
+        </section>
+
+        <!-- CHARTS SECTION -->
+        <section class="charts-grid">
+            <!-- Chart 1: App Usage distribution -->
+            <div class="glass-card chart-card">
+                <h2><i class="fa-solid fa-chart-pie"></i> Context App Distribution</h2>
+                <div class="chart-container">
+                    <canvas id="appUsageChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 2: Daily Screen Time -->
+            <div class="glass-card chart-card">
+                <h2><i class="fa-solid fa-chart-line"></i> Screen Time History</h2>
+                <div class="chart-container">
+                    <canvas id="screenTimeChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- BOTTOM PANELS -->
+        <section class="lower-grid">
+            <!-- Column 1: AI Insights and coaching -->
+            <div class="glass-card info-card">
+                <h2><i class="fa-solid fa-lightbulb"></i> Behavioral Audit Insights</h2>
+                <div class="insights-list">
+                    <div class="insight-item">
+                        <span class="insight-label">Primary Time Waster:</span>
+                        <span class="insight-value" id="val-time-waster">--</span>
+                    </div>
+                    <div class="insight-item">
+                        <span class="insight-label">Top Expense Category:</span>
+                        <span class="insight-value" id="val-spending">--</span>
+                    </div>
+                    <div class="insight-item">
+                        <span class="insight-label">Detected Habits:</span>
+                        <span class="insight-value" id="val-habits">--</span>
+                    </div>
+                </div>
+                <div class="coaching-card">
+                    <div class="coaching-header"><i class="fa-solid fa-robot"></i> Intelligent Recommendation</div>
+                    <p class="coaching-text" id="val-suggestion">Analyzing behavior...</p>
+                </div>
+            </div>
+
+            <!-- Column 2: Intervention Alerts -->
+            <div class="glass-card info-card">
+                <h2><i class="fa-solid fa-bell"></i> Live Intervention Alert Feeds</h2>
+                <div class="alerts-list" id="alerts-container">
+                    <div class="loading-placeholder">Polled alert entries are empty.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- RAW EVENT LOGGER -->
+        <section class="glass-card events-card">
+            <h2><i class="fa-solid fa-database"></i> Event-Driven Log Stream</h2>
+            <div class="events-list" id="events-container">
+                <div class="loading-placeholder">Connecting stream...</div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Main ES Module Script entry point -->
+    <script type="module" src="/app.js"></script>
+</body>
+</html>
