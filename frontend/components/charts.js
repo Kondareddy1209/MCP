@@ -14,12 +14,34 @@ function renderAppUsagePie(appUsage) {
     const canvas = document.getElementById("appUsageChart");
     if (!canvas) return;
     
+    // ✅ ALWAYS destroy existing chart from DOM-level registry first
     const existingChart = Chart.getChart(canvas);
     if (existingChart) {
         existingChart.destroy();
     }
 
     const ctx = canvas.getContext("2d");
+
+    // Handle empty data — render clean placeholder, never leave ghost data
+    if (!appUsage || appUsage.length === 0) {
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['No Active App Logs'],
+                datasets: [{ data: [1], backgroundColor: ['rgba(255,255,255,0.05)'], borderWidth: 1, borderColor: '#2a2d3a' }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#8e94a9', font: { family: 'Outfit', size: 11 } } },
+                    tooltip: { enabled: false }
+                },
+                cutout: '70%'
+            }
+        });
+        return;
+    }
 
     // Group durations by app
     const appDurations = {};
@@ -45,11 +67,6 @@ function renderAppUsagePie(appUsage) {
 
         labels = topLabels;
         data = topData;
-    }
-
-    if (labels.length === 0) {
-        labels.push("No Active app logs");
-        data.push(0);
     }
 
     appChartInstance = new Chart(ctx, {
@@ -84,12 +101,37 @@ function renderScreenTimeLine(screenTime) {
     const canvas = document.getElementById("screenTimeChart");
     if (!canvas) return;
 
+    // ✅ ALWAYS destroy existing chart from DOM-level registry first
     const existingChart = Chart.getChart(canvas);
     if (existingChart) {
         existingChart.destroy();
     }
 
     const ctx = canvas.getContext("2d");
+
+    // Handle empty data - render clean empty line chart
+    if (!screenTime || screenTime.length === 0) {
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['No Data'],
+                datasets: [
+                    { label: 'Laptop', data: [0], borderColor: 'rgba(41,182,246,0.2)', borderWidth: 1, fill: false },
+                    { label: 'Mobile', data: [0], borderColor: 'rgba(157,78,221,0.2)', borderWidth: 1, fill: false }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#8e94a9', font: { family: 'Outfit' } } } },
+                scales: {
+                    y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8e94a9' }, min: 0, max: 1 },
+                    x: { grid: { display: false }, ticks: { color: '#8e94a9' } }
+                }
+            }
+        });
+        return;
+    }
 
     // Group screen time by date and device
     const dateGroups = {}; // { 'YYYY-MM-DD': { laptop: X, mobile: Y } }
