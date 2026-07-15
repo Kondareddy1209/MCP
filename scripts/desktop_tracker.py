@@ -103,7 +103,7 @@ def get_active_window_details():
     except Exception:
         return "Unknown", "Unknown Process", ""
 
-class AntigravityTracker:
+class ItsYouTracker:
     def __init__(self, api_url: str = "http://localhost:8000/api", poll_interval: float = 1.0):
         self.api_url = api_url
         self.poll_interval = poll_interval  # check active app state every 1 second
@@ -194,7 +194,7 @@ class AntigravityTracker:
             print("[-] Desktop Tracker requires Windows pywin32 API.")
             sys.exit(1)
             
-        print(f"[+] Starting Antigravity Event-Driven Tracker...")
+        print(f"[+] Starting it'syou Event-Driven Tracker...")
         print(f"[+] Session ID: {self.session_id}")
         self.input_tracker.start()
         
@@ -327,5 +327,5 @@ class AntigravityTracker:
             
 if __name__ == "__main__":
     api = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000/api"
-    tracker = AntigravityTracker(api_url=api)
+    tracker = ItsYouTracker(api_url=api)
     tracker.run()
