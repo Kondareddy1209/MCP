@@ -1,5 +1,5 @@
 // ==========================================
-// ANTIGRAVITY ENGINE ORCHESTRATOR (app.js)
+// YOUANDYOUR THINGS ENGINE FRONTEND (app.js)
 // ==========================================
 
 import { fetchDashboard } from './api.js';
@@ -47,15 +47,17 @@ function extractNameFromProcess(proc) {
 function getAppName(log) {
     const processName = (log.app_name || "").toLowerCase().trim();
     
-    // PRIORITY: process name (most reliable)
-    if (processName.includes("code.exe") || processName.includes("code")) return "VS Code";
-    if (processName.includes("chrome")) return "Chrome";
-    if (processName.includes("firefox")) return "Firefox";
-    
-    // STRICT match for Cursor (NOT substring matching)
+    // STRICT matches first — prevent substring false positives
     if (processName === "cursor.exe" || processName === "cursor") return "Cursor";
+    if (processName === "code.exe" || processName === "code" || processName === "vs code" || processName.startsWith("code -")) return "VS Code";
+    if (processName === "chrome.exe" || processName === "chrome") return "Chrome";
+    if (processName === "firefox.exe" || processName === "firefox") return "Firefox";
+    if (processName === "msedge.exe" || processName === "msedge") return "Edge";
     
-    if (processName.includes("cmd.exe") || processName.includes("powershell.exe") || processName.includes("terminal")) return "Terminal";
+    // Partial matches for terminal/shell tools
+    if (processName.includes("cmd") || processName.includes("powershell") || processName.includes("terminal") || processName.includes("wt.exe")) return "Terminal";
+    
+    // Partial matches for browser-based apps (window title based)
     if (processName.includes("youtube")) return "YouTube";
     if (processName.includes("instagram")) return "Instagram";
     if (processName.includes("netflix")) return "Netflix";
@@ -197,39 +199,150 @@ function renderCurrentSession(session) {
     }
 }
 
+// ==========================================
 // PURE TELEMETRY COMPUTATION ENGINE
+// ==========================================
+// DIAGNOSTIC FINDINGS (from inspect_db.py):
+//   • DB: antigravity.db (345 records)
+//   • timestamps stored as naive LOCAL time: "2026-07-14 11:14:48.000000" (NO Z suffix)
+//   • date stored as: "2026-07-14" (YYYY-MM-DD string, local date)
+//   • NO UTC offset — backend uses datetime.utcnow() but stores without tzinfo
+
 function computeTelemetryEngine(data, days) {
     const now = new Date();
-    
-    function isInTimeframe(timestamp) {
-        if (!timestamp) return false;
-        
-        let val = timestamp;
-        if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-            val = val + "T00:00:00";
-        }
-        const d = new Date(val);
+
+    // ───────────────────────────────────────────────
+    // ✅ STEP 2: Log filter reference values
+    // ───────────────────────────────────────────────
+    const localTodayStr = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0')
+    ].join('-'); // e.g. "2026-07-15"
+
+    console.group("🕵️ TELEMETRY ENGINE — Filter Debug");
+    console.log("NOW (local)       :", now.toString());
+    console.log("TODAY (YYYY-MM-DD):", localTodayStr);
+    console.log("DAYS selected     :", days);
+    console.log("USER TZ           :", Intl.DateTimeFormat().resolvedOptions().timeZone);
+    console.log("META from server  :", data.meta || "no meta field");
+    console.groupEnd();
+
+    // ───────────────────────────────────────────────
+    // ✅ STEP 3: LOCAL-time-safe boundaries
+    // Timestamps in DB = naive LOCAL time (no Z, no +05:30)
+    // → Parse with T separator to keep LOCAL time interpretation
+    // ───────────────────────────────────────────────
+
+    // Local midnight of today: e.g. 2026-07-15T00:00:00 in IST
+    const localMidnightToday = new Date(`${localTodayStr}T00:00:00`);
+
+    // Cutoff for N-day range: N days ago at local midnight
+    const cutoffDate = new Date(now);
+    cutoffDate.setHours(0, 0, 0, 0);
+    cutoffDate.setDate(cutoffDate.getDate() - (days - 1)); // e.g. 7 days = 7 days back from today
+
+    // ── isDateInRange: checks date string field (YYYY-MM-DD) ──────────
+    function isDateInRange(dateStr) {
+        if (!dateStr) return false;
+        // Parse as local date
+        const d = new Date(dateStr + "T00:00:00");
         if (isNaN(d.getTime())) return false;
-        
         if (days === 1) {
-            return d.toLocaleDateString() === now.toLocaleDateString();
-        } else {
-            const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-            return d >= cutoff;
+            // Today only: date string must equal localTodayStr
+            return dateStr === localTodayStr;
         }
+        return d >= cutoffDate;
     }
-    
-    const rawEvents = data.events || [];
-    const rawUsage = data.app_usage || data.apps || [];
-    const rawExpenses = data.expenses || [];
+
+    // ── isTimestampInRange: checks datetime field ─────────────────────
+    // Stored format: "2026-07-14 11:14:48.000000" (space separator, no Z)
+    // Replace space with T so JS Date parses it as local time correctly
+    function isTimestampInRange(tsStr) {
+        if (!tsStr) return false;
+        // Normalize: "2026-07-14 11:14:48.000000" → "2026-07-14T11:14:48.000000"
+        const normalized = String(tsStr).replace(' ', 'T');
+        const d = new Date(normalized);
+        if (isNaN(d.getTime())) return false;
+        if (days === 1) {
+            return d >= localMidnightToday;
+        }
+        return d >= cutoffDate;
+    }
+
+    // ── isInTimeframe: unified record filter ──────────────────────────
+    function isInTimeframe(record) {
+        // Prefer date field (most reliable, no timezone confusion)
+        if (record.date) return isDateInRange(record.date);
+        // Fall back to timestamp field
+        const ts = record.timestamp || record.time || record.created_at;
+        return isTimestampInRange(ts);
+    }
+
+    const rawEvents    = data.events     || [];
+    const rawUsage     = data.app_usage  || data.apps || [];
+    const rawExpenses  = data.expenses   || [];
     const rawScreenTime = data.screen_time || [];
-    
-    const filteredEvents = rawEvents.filter(e => isInTimeframe(e.timestamp));
-    const filteredUsage = rawUsage.filter(u => isInTimeframe(u.timestamp || u.date));
-    const filteredExpenses = rawExpenses.filter(e => isInTimeframe(e.timestamp || e.date));
-    const filteredScreenTime = rawScreenTime.filter(s => isInTimeframe(s.date));
-    
-    const normalizedUsage = filteredUsage.map(app => {
+
+    // ───────────────────────────────────────────────
+    // ✅ STEP 1: Log raw timestamps to verify format
+    // ───────────────────────────────────────────────
+    console.group("📦 STEP 1 — Raw API Sample");
+    console.log("app_usage[0:3]:", rawUsage.slice(0, 3).map(u => ({
+        app: u.app_name,
+        date: u.date,
+        timestamp: u.timestamp
+    })));
+    console.groupEnd();
+
+    const filteredEvents     = rawEvents.filter(e  => isTimestampInRange(e.timestamp));
+    const filteredUsage      = rawUsage.filter(u   => isInTimeframe(u));
+    const filteredExpenses   = rawExpenses.filter(e => isInTimeframe(e));
+    const filteredScreenTime = rawScreenTime.filter(s => isInTimeframe(s));
+
+    // ───────────────────────────────────────────────
+    // ✅ STEP 5: Debug counters
+    // ───────────────────────────────────────────────
+    console.group("📊 STEP 5 — Filter Counts");
+    console.log(`app_usage  : RAW=${rawUsage.length}  FILTERED=${filteredUsage.length}`);
+    console.log(`events     : RAW=${rawEvents.length}  FILTERED=${filteredEvents.length}`);
+    console.log(`expenses   : RAW=${rawExpenses.length}  FILTERED=${filteredExpenses.length}`);
+    console.log(`screen_time: RAW=${rawScreenTime.length}  FILTERED=${filteredScreenTime.length}`);
+    console.log(`LOCAL TODAY: ${localTodayStr}  | cutoff: ${cutoffDate.toISOString()}`);
+    if (rawUsage.length > 0) {
+        const sampleDate = rawUsage[0].date;
+        console.log(`DB latest date: "${sampleDate}" | matches today? ${sampleDate === localTodayStr}`);
+    }
+    console.groupEnd();
+
+    // ───────────────────────────────────────────────
+    // ✅ STEP 4: Safety fallback logic
+    // If Today filter removes all data but raw data exists:
+    //   → Show last available day instead (NOT raw all-time)
+    //   → This prevents UI from appearing broken
+    // ───────────────────────────────────────────────
+    let resolvedUsage = filteredUsage;
+    let fallbackActive = false;
+
+    if (filteredUsage.length === 0 && rawUsage.length > 0 && days === 1) {
+        // Find the most recent date in DB
+        const latestDate = rawUsage
+            .map(u => u.date)
+            .filter(Boolean)
+            .sort()
+            .reverse()[0];
+
+        console.warn(`⚠️ STEP 4 FALLBACK ACTIVATED`);
+        console.warn(`   Today is ${localTodayStr} — no data found.`);
+        console.warn(`   Latest DB date is: ${latestDate}`);
+        console.warn(`   Showing data from most recent day: ${latestDate}`);
+
+        // Show most recent available day's data as fallback
+        resolvedUsage = rawUsage.filter(u => u.date === latestDate);
+        fallbackActive = true;
+    }
+
+    const normalizedUsage = resolvedUsage.map(app => {
         const cleanName = getAppName(app);
         const dur = app.duration_seconds || app.duration || 0;
         return {
@@ -243,7 +356,7 @@ function computeTelemetryEngine(data, days) {
     });
 
     if (filteredEvents.length === 0 && normalizedUsage.length === 0) {
-        console.warn("⚠️ No telemetry data available yet");
+        console.warn("⚠️ No telemetry data available for this timeframe");
         return null;
     }
     
@@ -379,23 +492,21 @@ function computeTelemetryEngine(data, days) {
     };
 }
 
-function renderDashboard(state) {
+function renderDashboard(computedData, days) {
     // ✅ 1. HARD RESET STATE (MANDATORY)
-    state.charts = {};
-    state.metrics = {};
-    state.insights = {};
-    state.alerts = [];
+    AppState.charts = {};
+    AppState.metrics = {};
+    AppState.insights = {};
+    AppState.alerts = [];
 
-    if (!state || !state.dashboardData) return;
-
-    const days = state.selectedDays;
-    
-    // ✅ 2. USE ONLY FILTERED DATA
-    const filtered = computeTelemetryEngine(state.dashboardData, days);
-
-    if (!filtered) {
+    // ✅ 2. NULL DATA → wipe charts and show empty state
+    if (!computedData) {
+        console.warn("⚠️ computedData is null — clearing all charts");
         showSystemStatus("No telemetry data available yet");
         try {
+            // CRITICAL: Always destroy canvas charts on empty data to prevent ghost apps
+            renderCharts([], []);
+            renderAlerts([]);
             renderMetrics({
                 productivity_score: 0,
                 focus_efficiency: 0,
@@ -413,18 +524,36 @@ function renderDashboard(state) {
                 detected_habits: [],
                 alerts: []
             }, days);
-            renderCharts([], []);
-            renderAlerts([]);
         } catch (e) {
             console.error("Failed to render empty state:", e);
         }
         return;
     }
 
-    console.log("FILTERED APP USAGE:", filtered.app_usage);
+    const { events = [], app_usage = [], expenses = [], screen_time = [], metrics = {}, insights = {}, alerts = [] } = computedData;
+
+    // 🔍 LIFECYCLE LOGS
+    console.log("COMPUTED DATA:", computedData);
+    console.log("EVENTS LENGTH:", events?.length);
+    console.log("APP USAGE LENGTH:", app_usage?.length);
+
+    // ✅ EMPTY GUARD: wipe charts, then return — do NOT skip chart clearing
+    if (!app_usage || app_usage.length === 0) {
+        console.warn("⚠️ No app usage after filtering — clearing charts");
+        try {
+            renderCharts([], []);  // MANDATORY: clears ghost apps from canvas
+            renderAlerts([]);
+        } catch (e) {
+            console.error("Failed to clear empty charts:", e);
+        }
+        return;
+    }
+
+    // 🧪 STEP 5 — VERIFY FILTER
+    console.log("FILTERED APP USAGE:", app_usage.map(a => a.app_name));
 
     // ✅ 3. BUILD CHART DATA (PURE REDUCER)
-    const appDistribution = (filtered.app_usage || []).reduce((acc, item) => {
+    const appDistribution = (app_usage || []).reduce((acc, item) => {
         if (!item) return acc;
         
         // Support app, name, or app_name safely
@@ -444,7 +573,7 @@ function renderDashboard(state) {
 
     // ✅ 4. ASSERTION (CATCH GHOST APPS)
     const rawApps = new Set(
-        (filtered.app_usage || [])
+        (app_usage || [])
             .map(a => (a.app || a.name || a.app_name)?.trim().toLowerCase())
             .filter(Boolean)
     );
@@ -460,41 +589,27 @@ function renderDashboard(state) {
     const data = Object.values(appDistribution);
 
     console.log("FINAL CHART DATA:", appDistribution);
+    console.log("CHART LABELS:", labels);
 
     // ✅ 8. FINAL ASSERTION FOR CURSOR GHOST SPECIFIC
-    const validApps = (filtered.app_usage || [])
-        .filter(app =>
-            app &&
-            (app.app || app.name || app.app_name) &&
-            typeof (app.duration || app.duration_seconds || 0) === "number" &&
-            (app.duration || app.duration_seconds || 0) > 0
-        )
-        .map(app => (app.app || app.name || app.app_name).toLowerCase().trim());
-
-    if (labels.includes("cursor") && !validApps.includes("cursor")) {
+    if (labels.includes("cursor") && !rawApps.has("cursor")) {
         throw new Error("🚨 Ghost app detected: Cursor should not be rendered");
     }
 
-    // 5. UI RENDER GUARD
-    if (!labels.length) {
-        console.warn("No valid app usage data");
-        return;
-    }
-
     const computedMetrics = {
-        ...filtered.metrics,
+        ...metrics,
         insights: {
-            biggest_time_waster: filtered.insights.time_waster,
-            spending_pattern: filtered.insights.expense_category,
-            suggestion: filtered.insights.recommendation
+            biggest_time_waster: insights.time_waster,
+            spending_pattern: insights.expense_category,
+            suggestion: insights.recommendation
         },
-        detected_habits: filtered.insights.habits.includes("No data") ? [] : filtered.insights.habits,
-        alerts: filtered.alerts
+        detected_habits: insights.habits.includes("No data") ? [] : insights.habits,
+        alerts: alerts
     };
 
     // Protect Entire Render Pipeline (Wrap rendering in try/catch)
     try {
-        renderCurrentSession(state.currentSession);
+        renderCurrentSession(AppState.currentSession);
     } catch (err) {
         console.error("renderCurrentSession failure:", err);
     }
@@ -509,26 +624,28 @@ function renderDashboard(state) {
             app_name: appLabel,
             duration_seconds: data[index]
         }));
-        renderCharts(chartMappedUsages, filtered.screen_time || []);
+        renderCharts(chartMappedUsages, screen_time || []);
     } catch (err) {
         console.error("renderCharts failure:", err);
     }
     try {
-        renderRawEventsStream(filtered.events || []);
+        renderRawEventsStream(events || []);
     } catch (err) {
         console.error("renderRawEventsStream failure:", err);
     }
     try {
-        renderAlerts(filtered.alerts);
+        renderAlerts(alerts);
     } catch (err) {
         console.error("renderAlerts failure:", err);
     }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    console.log("🚀 DOMContentLoaded fired — registering listeners");
     // Register Dropdown Events
     const rangeSelect = document.getElementById("days-range-select");
     rangeSelect.addEventListener("change", (e) => {
+        console.log("📆 Range changed to:", e.target.value, "days");
         // Prevent State Leak on change
         AppState.selectedDays = parseInt(e.target.value);
         AppState.todayData = [];
@@ -542,13 +659,15 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function initializeDashboard() {
+    console.log("🔄 initializeDashboard called — starting polling loop");
     showLoadingState();
     try {
         // Run initial full sync
         await syncDashboard();
         
-        // Setup polling interval: unified cycle every 10 seconds (reduces DB locks and query noise)
+        // Setup polling interval: unified cycle every 10 seconds
         setInterval(syncDashboard, 10000);
+        console.log("⏰ Polling interval set (10s)");
         
     } catch (e) {
         console.error("Dashboard initial sync failed:", e);
@@ -574,7 +693,9 @@ async function syncDashboard() {
             expenses: raw.expenses || [],
             screen_time: raw.screen_time || [],
             alerts: raw.alerts || [],
-            analytics: raw.analytics || raw.metrics || {}
+            analytics: raw.analytics || raw.metrics || {},
+            // ✅ Pass meta through so computeTelemetryEngine can log timezone info
+            meta: raw.meta || null
         };
         
         console.log("NORMALIZED DATA:", data); // DEBUG LOG
@@ -588,8 +709,11 @@ async function syncDashboard() {
         const session = resolveCurrentSession(data.events, data.app_usage);
         AppState.currentSession = session;
         
-        // FORCE RENDER
-        renderDashboard(AppState);
+        // compute telemetry engine first
+        const computedData = computeTelemetryEngine(AppState.dashboardData, days);
+        
+        // FORCE RENDER (pass computedData directly)
+        renderDashboard(computedData, days);
         
         toggleLoading(false);
     } catch (e) {
