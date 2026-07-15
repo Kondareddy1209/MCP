@@ -9,7 +9,7 @@ from db import init_db, get_session
 from routers import expenses, app_usage, screen_time, classifications, analytics, events
 from models import Expense, AppUsage, DailyScreenTime, AppClassification, ProductivityMetricsCache, UsageEvent
 
-app = FastAPI(title="Antigravity API", description="Personal Intelligence System Backend")
+app = FastAPI(title="it'syou API", description="Personal Intelligence System Backend")
 
 # Setup CORS
 app.add_middleware(
@@ -55,13 +55,35 @@ def debug_all_data(session: Session = Depends(get_session)):
 def get_dashboard_aggregate(days: int = 7, session: Session = Depends(get_session)):
     from analytics import calculate_analytics
     from sqlmodel import select
-    from datetime import date, timedelta
-    
-    start_date = date.today() - timedelta(days=days)
-    
+    from datetime import date, timedelta, datetime, timezone
+
+    today = date.today()
+
+    # ✅ STEP 6 — Backend filtering fix
+    # For days=1: try today first; if empty, return most recent day's data
+    # This matches the frontend STEP 4 fallback logic
+    if days == 1:
+        start_date = today
+        # Check if any data exists for today
+        count_today = len(session.exec(
+            select(AppUsage).where(AppUsage.date == today)
+        ).all())
+
+        if count_today == 0:
+            # Fallback: find the latest available date
+            all_dates = session.exec(
+                select(AppUsage.date).order_by(AppUsage.date.desc()).limit(1)
+            ).all()
+            if all_dates:
+                start_date = all_dates[0]
+                print(f"[DASHBOARD] No data for today ({today}). Falling back to latest date: {start_date}")
+            # else: no data at all, start_date stays as today (will return empty)
+    else:
+        start_date = today - timedelta(days=days)
+
     # 1. Fetch analytics
     data = calculate_analytics(session, days)
-    
+
     # 2. Fetch parsed log alerts
     log_path = "interventions.log"
     alerts = []
@@ -83,36 +105,41 @@ def get_dashboard_aggregate(days: int = 7, session: Session = Depends(get_sessio
         except Exception:
             pass
     alerts = alerts[::-1]
-    
+
     # 3. Fetch recent events from DB
-    events = session.exec(
+    events_list = session.exec(
         select(UsageEvent).order_by(UsageEvent.timestamp.desc()).limit(20)
     ).all()
-    
-    # 4. Fetch raw data lists for Chart.js rendering and frontend calculations
+
+    # 4. Filter by date column (reliable — stored as local date string YYYY-MM-DD)
     app_usages = session.exec(
         select(AppUsage).where(AppUsage.date >= start_date)
     ).all()
-    
+
     screen_time_records = session.exec(
         select(DailyScreenTime).where(DailyScreenTime.date >= start_date)
     ).all()
-    
+
     expenses_records = session.exec(
         select(Expense).where(Expense.date >= start_date)
     ).all()
-    
+
     return {
         "analytics": data,
         "alerts": alerts,
-        "events": events,
+        "events": events_list,
         "app_usage": app_usages,
         "screen_time": screen_time_records,
-        "expenses": expenses_records
+        "expenses": expenses_records,
+        # ✅ Debug meta — lets frontend verify timezone alignment
+        "meta": {
+            "days": days,
+            "start_date": str(start_date),
+            "today": str(today),
+            "server_time_utc": datetime.now(timezone.utc).isoformat(),
+            "record_count": len(app_usages)
+        }
     }
-
-
-
 
 
 # Serves Static Files
@@ -149,7 +176,6 @@ def read_root():
     index_path = os.path.join(static_dir, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    return {"message": "Welcome to Antigravity API! Please create frontend/index.html to view dashboard."}
+    return {"message": "Welcome to it'syou API! Please create frontend/index.html to view dashboard."}
 
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-
