@@ -9,7 +9,7 @@ import analytics
 from models import Expense, DailyScreenTime, AppClassification
 
 # Initialize FastMCP server
-mcp = FastMCP("Antigravity")
+mcp = FastMCP("it'syou")
 
 @mcp.tool()
 def get_daily_summary() -> str:
