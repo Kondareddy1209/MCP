@@ -202,96 +202,74 @@ function renderCurrentSession(session) {
 // ==========================================
 // PURE TELEMETRY COMPUTATION ENGINE
 // ==========================================
-// DIAGNOSTIC FINDINGS (from inspect_db.py):
-//   • DB: antigravity.db (345 records)
-//   • timestamps stored as naive LOCAL time: "2026-07-14 11:14:48.000000" (NO Z suffix)
-//   • date stored as: "2026-07-14" (YYYY-MM-DD string, local date)
-//   • NO UTC offset — backend uses datetime.utcnow() but stores without tzinfo
+// DB: itsyou_clean.db (single source of truth)
+// Timestamps: IST (Asia/Kolkata, UTC+5:30), stored as local datetime strings
+// Format: "2026-07-15 11:30:00" (space separator, no Z suffix)
+// STEP 8: Frontend trusts backend data 100% — NO fallback to old/cached values
 
 function computeTelemetryEngine(data, days) {
     const now = new Date();
+    const meta = data.meta || {};
 
-    // ───────────────────────────────────────────────
-    // ✅ STEP 2: Log filter reference values
-    // ───────────────────────────────────────────────
-    const localTodayStr = [
+    // ── TODAY string from server meta (most reliable) ──────────────────
+    // Server sends today_ist: "2026-07-15" — use this to avoid browser TZ issues
+    const localTodayStr = meta.today_ist || [
         now.getFullYear(),
         String(now.getMonth() + 1).padStart(2, '0'),
         String(now.getDate()).padStart(2, '0')
-    ].join('-'); // e.g. "2026-07-15"
+    ].join('-');
 
-    console.group("🕵️ TELEMETRY ENGINE — Filter Debug");
-    console.log("NOW (local)       :", now.toString());
-    console.log("TODAY (YYYY-MM-DD):", localTodayStr);
+    console.group("🕵️ TELEMETRY ENGINE v2.0 — itsyou_clean.db");
+    console.log("SERVER today_ist  :", meta.today_ist || "not sent");
+    console.log("SERVER start_date :", meta.start_date || "not sent");
+    console.log("SERVER record_count:", meta.record_count ?? "?");
+    console.log("SERVER database   :", meta.database || "?");
     console.log("DAYS selected     :", days);
     console.log("USER TZ           :", Intl.DateTimeFormat().resolvedOptions().timeZone);
-    console.log("META from server  :", data.meta || "no meta field");
     console.groupEnd();
 
-    // ───────────────────────────────────────────────
-    // ✅ STEP 3: LOCAL-time-safe boundaries
-    // Timestamps in DB = naive LOCAL time (no Z, no +05:30)
-    // → Parse with T separator to keep LOCAL time interpretation
-    // ───────────────────────────────────────────────
-
-    // Local midnight of today: e.g. 2026-07-15T00:00:00 in IST
+    // ── Local midnight of today ────────────────────────────────────────
     const localMidnightToday = new Date(`${localTodayStr}T00:00:00`);
 
-    // Cutoff for N-day range: N days ago at local midnight
-    const cutoffDate = new Date(now);
-    cutoffDate.setHours(0, 0, 0, 0);
-    cutoffDate.setDate(cutoffDate.getDate() - (days - 1)); // e.g. 7 days = 7 days back from today
+    // ── Cutoff for N-day range ─────────────────────────────────────────
+    const cutoffDate = new Date(localMidnightToday);
+    cutoffDate.setDate(cutoffDate.getDate() - (days - 1));
 
-    // ── isDateInRange: checks date string field (YYYY-MM-DD) ──────────
+    // ── isDateInRange: checks YYYY-MM-DD date field ────────────────────
     function isDateInRange(dateStr) {
         if (!dateStr) return false;
-        // Parse as local date
+        if (days === 1) return dateStr === localTodayStr;
         const d = new Date(dateStr + "T00:00:00");
         if (isNaN(d.getTime())) return false;
-        if (days === 1) {
-            // Today only: date string must equal localTodayStr
-            return dateStr === localTodayStr;
-        }
         return d >= cutoffDate;
     }
 
-    // ── isTimestampInRange: checks datetime field ─────────────────────
-    // Stored format: "2026-07-14 11:14:48.000000" (space separator, no Z)
-    // Replace space with T so JS Date parses it as local time correctly
+    // ── isTimestampInRange: normalizes "YYYY-MM-DD HH:MM:SS" ──────────
     function isTimestampInRange(tsStr) {
         if (!tsStr) return false;
-        // Normalize: "2026-07-14 11:14:48.000000" → "2026-07-14T11:14:48.000000"
-        const normalized = String(tsStr).replace(' ', 'T');
+        const normalized = String(tsStr).replace(' ', 'T'); // space → T
         const d = new Date(normalized);
         if (isNaN(d.getTime())) return false;
-        if (days === 1) {
-            return d >= localMidnightToday;
-        }
+        if (days === 1) return d >= localMidnightToday;
         return d >= cutoffDate;
     }
 
-    // ── isInTimeframe: unified record filter ──────────────────────────
+    // ── Unified record filter ──────────────────────────────────────────
     function isInTimeframe(record) {
-        // Prefer date field (most reliable, no timezone confusion)
         if (record.date) return isDateInRange(record.date);
-        // Fall back to timestamp field
         const ts = record.timestamp || record.time || record.created_at;
         return isTimestampInRange(ts);
     }
 
-    const rawEvents    = data.events     || [];
-    const rawUsage     = data.app_usage  || data.apps || [];
-    const rawExpenses  = data.expenses   || [];
+    const rawEvents     = data.events      || [];
+    const rawUsage      = data.app_usage   || [];
+    const rawExpenses   = data.expenses    || [];
     const rawScreenTime = data.screen_time || [];
 
-    // ───────────────────────────────────────────────
-    // ✅ STEP 1: Log raw timestamps to verify format
-    // ───────────────────────────────────────────────
-    console.group("📦 STEP 1 — Raw API Sample");
-    console.log("app_usage[0:3]:", rawUsage.slice(0, 3).map(u => ({
-        app: u.app_name,
-        date: u.date,
-        timestamp: u.timestamp
+    // ── STEP 1: Log raw sample ─────────────────────────────────────────
+    console.group("📦 Raw API Sample (first 3)");
+    console.log(rawUsage.slice(0, 3).map(u => ({
+        app: u.app_name, date: u.date, timestamp: u.timestamp
     })));
     console.groupEnd();
 
@@ -300,46 +278,24 @@ function computeTelemetryEngine(data, days) {
     const filteredExpenses   = rawExpenses.filter(e => isInTimeframe(e));
     const filteredScreenTime = rawScreenTime.filter(s => isInTimeframe(s));
 
-    // ───────────────────────────────────────────────
-    // ✅ STEP 5: Debug counters
-    // ───────────────────────────────────────────────
-    console.group("📊 STEP 5 — Filter Counts");
-    console.log(`app_usage  : RAW=${rawUsage.length}  FILTERED=${filteredUsage.length}`);
-    console.log(`events     : RAW=${rawEvents.length}  FILTERED=${filteredEvents.length}`);
-    console.log(`expenses   : RAW=${rawExpenses.length}  FILTERED=${filteredExpenses.length}`);
-    console.log(`screen_time: RAW=${rawScreenTime.length}  FILTERED=${filteredScreenTime.length}`);
-    console.log(`LOCAL TODAY: ${localTodayStr}  | cutoff: ${cutoffDate.toISOString()}`);
+    // ── STEP 5: Filter counts ──────────────────────────────────────────
+    console.group("📊 Filter Counts");
+    console.log(`app_usage  : RAW=${rawUsage.length}  → FILTERED=${filteredUsage.length}`);
+    console.log(`events     : RAW=${rawEvents.length}  → FILTERED=${filteredEvents.length}`);
+    console.log(`TODAY=${localTodayStr}  cutoff=${cutoffDate.toDateString()}`);
     if (rawUsage.length > 0) {
-        const sampleDate = rawUsage[0].date;
-        console.log(`DB latest date: "${sampleDate}" | matches today? ${sampleDate === localTodayStr}`);
+        console.log(`DB latest date: "${rawUsage[0].date}" | today match? ${rawUsage[0].date === localTodayStr}`);
     }
     console.groupEnd();
 
-    // ───────────────────────────────────────────────
-    // ✅ STEP 4: Safety fallback logic
-    // If Today filter removes all data but raw data exists:
-    //   → Show last available day instead (NOT raw all-time)
-    //   → This prevents UI from appearing broken
-    // ───────────────────────────────────────────────
-    let resolvedUsage = filteredUsage;
-    let fallbackActive = false;
+    // ── STEP 8: NO FALLBACK — trust backend data ───────────────────────
+    // If today has no data → show clean empty state ("No Data")
+    // This is correct: new DB starts empty, data grows as tracker runs
+    const resolvedUsage = filteredUsage;
 
     if (filteredUsage.length === 0 && rawUsage.length > 0 && days === 1) {
-        // Find the most recent date in DB
-        const latestDate = rawUsage
-            .map(u => u.date)
-            .filter(Boolean)
-            .sort()
-            .reverse()[0];
-
-        console.warn(`⚠️ STEP 4 FALLBACK ACTIVATED`);
-        console.warn(`   Today is ${localTodayStr} — no data found.`);
-        console.warn(`   Latest DB date is: ${latestDate}`);
-        console.warn(`   Showing data from most recent day: ${latestDate}`);
-
-        // Show most recent available day's data as fallback
-        resolvedUsage = rawUsage.filter(u => u.date === latestDate);
-        fallbackActive = true;
+        console.info(`ℹ️ No data for today (${localTodayStr}). Start the tracker to collect data.`);
+        console.info(`   Server has data up to: ${rawUsage[0]?.date || "unknown"}`);
     }
 
     const normalizedUsage = resolvedUsage.map(app => {
@@ -356,13 +312,14 @@ function computeTelemetryEngine(data, days) {
     });
 
     if (filteredEvents.length === 0 && normalizedUsage.length === 0) {
-        console.warn("⚠️ No telemetry data available for this timeframe");
+        console.warn("⚠️ No telemetry data for this timeframe — start the tracker");
         return null;
     }
-    
+
     const totalUsageHours = normalizedUsage.reduce((sum, u) => {
         return sum + (u.duration / 3600);
     }, 0);
+
     
     const productiveHours = normalizedUsage.reduce((sum, u) => {
         const category = getCategory(u.app_name);
