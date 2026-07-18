@@ -79,3 +79,25 @@ def auto_classify(app_name: str, window_title: str = "", browser_url: str = "") 
     """Helper functional wrapper returning just the classification string."""
     classification, _ = classifier.classify(app_name, window_title, browser_url)
     return classification
+
+PACKAGE_MAPPING = {
+    "com.android.chrome": "Chrome",
+    "org.mozilla.firefox": "Firefox",
+    "com.google.android.youtube": "YouTube",
+    "com.instagram.android": "Instagram",
+    "com.facebook.katana": "Facebook",
+    "com.twitter.android": "Twitter",
+    "com.whatsapp": "WhatsApp",
+    "com.spotify.music": "Spotify",
+    "com.reddit.frontpage": "Reddit",
+    "com.valvesoftware.android.steam.community": "Steam",
+    "com.slack": "Slack",
+    "com.microsoft.teams": "Teams",
+    "com.zhiliaoapp.musically": "TikTok",
+    "com.netflix.mediaclient": "Netflix",
+}
+
+def normalize_app_name(app_name: str) -> str:
+    """Normalizes package names / app names across platforms to their common display names."""
+    clean = app_name.lower().strip()
+    return PACKAGE_MAPPING.get(clean, app_name)
