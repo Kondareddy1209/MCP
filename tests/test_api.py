@@ -200,6 +200,43 @@ def test_dashboard_aggregate():
     assert "alerts" in data
     assert "events" in data
 
+def test_last_active_app():
+    # Insert a dummy event first
+    event_payload = {
+        "event_type": "focus",
+        "app_name": "Chrome",
+        "window_title": "YouTube - Ingest Test Video"
+    }
+    client.post("/api/events/", json=event_payload)
+
+    response = client.get("/api/last-active-app")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["app"] == "Chrome"
+    assert data["window"] == "YouTube - Ingest Test Video"
+    assert data["status"] == "active"
+
+def test_live_usage():
+    # Check that live usage returns summary and events
+    response = client.get("/api/live-usage")
+    assert response.status_code == 200
+    data = response.json()
+    assert "last_active" in data
+    assert "today_summary" in data
+    assert "recent_events" in data
+
+def test_ingest_endpoint():
+    ingest_payload = {
+        "device": "mobile",
+        "app": "Instagram",
+        "timestamp": "2026-07-15T12:00:00+05:30",
+        "duration": 45
+    }
+    response = client.post("/api/ingest", json=ingest_payload)
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
 
 
 
