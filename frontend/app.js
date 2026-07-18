@@ -4,10 +4,10 @@
 
 import { fetchDashboard } from './api.js';
 
-import { renderDashboard as renderMetrics } from './components/dashboard.js';
-import { renderCharts } from './components/charts.js';
-import { renderLiveActivity, renderRawEventsStream } from './components/activity.js';
-import { renderAlerts } from './components/alerts.js';
+import { renderDashboard as renderMetrics } from './components/dashboard.js?v=2.0.2';
+import { renderCharts } from './components/charts.js?v=2.0.2';
+import { renderLiveActivity, renderRawEventsStream } from './components/activity.js?v=2.0.2';
+import { renderAlerts } from './components/alerts.js?v=2.0.2';
 
 // Global application state object
 const AppState = {
@@ -119,22 +119,41 @@ function showLoadingState() {
     toggleLoading(true);
 }
 
-function resolveCurrentSession(events, usage) {
+function resolveCurrentSession(events, usage, currentActivityBackend) {
+    const IGNORE_APPS = new Set(["itsyoutrackerdaemon", "tracker.exe", "python.exe", "uvicorn.exe", "cmd.exe", "powershell.exe"]);
+    
+    if (currentActivityBackend && currentActivityBackend.app && !IGNORE_APPS.has(currentActivityBackend.app.toLowerCase())) {
+        return {
+            app: currentActivityBackend.app,
+            title: currentActivityBackend.window || "Active foreground app"
+        };
+    }
+
     let latestEvent = null;
     let latestUsage = null;
 
-    // Sort events using safe date fallbacks (timestamp, time, created_at)
-    if (events && events.length > 0) {
-        latestEvent = [...events].sort((a, b) => {
+    // Filter and sort events
+    const filteredEvents = (events || []).filter(e => {
+        const app = (e.app_name || e.app || "").toLowerCase().trim();
+        return app && !IGNORE_APPS.has(app);
+    });
+
+    if (filteredEvents.length > 0) {
+        latestEvent = [...filteredEvents].sort((a, b) => {
             const valA = a.timestamp || a.time || a.created_at;
             const valB = b.timestamp || b.time || b.created_at;
             return new Date(valB) - new Date(valA);
         })[0];
     }
 
-    // Sort usage using safe date fallbacks (timestamp, time, created_at)
-    if (usage && usage.length > 0) {
-        latestUsage = [...usage].sort((a, b) => {
+    // Filter and sort usage
+    const filteredUsage = (usage || []).filter(u => {
+        const app = (u.app_name || u.app || "").toLowerCase().trim();
+        return app && !IGNORE_APPS.has(app);
+    });
+
+    if (filteredUsage.length > 0) {
+        latestUsage = [...filteredUsage].sort((a, b) => {
             const valA = a.timestamp || a.time || a.created_at;
             const valB = b.timestamp || b.time || b.created_at;
             return new Date(valB) - new Date(valA);
@@ -142,17 +161,17 @@ function resolveCurrentSession(events, usage) {
     }
 
     // PRIORITY 1 → usage (more reliable)
-    if (latestUsage && latestUsage.app_name) {
+    if (latestUsage) {
         return {
-            app: latestUsage.app_name,
-            title: latestUsage.window_title || "Active session"
+            app: latestUsage.app_name || latestUsage.app || "Background",
+            title: latestUsage.window_title || latestUsage.window || "Active session"
         };
     }
 
     // PRIORITY 2 → events
     if (latestEvent) {
         return {
-            app: latestEvent.process || latestEvent.app_name || "Background",
+            app: latestEvent.process || latestEvent.app_name || latestEvent.app || "Background",
             title: latestEvent.window_title || latestEvent.title || "No window title"
         };
     }
@@ -276,7 +295,7 @@ function computeTelemetryEngine(data, days) {
     const filteredEvents     = rawEvents.filter(e  => isTimestampInRange(e.timestamp));
     const filteredUsage      = rawUsage.filter(u   => isInTimeframe(u));
     const filteredExpenses   = rawExpenses.filter(e => isInTimeframe(e));
-    const filteredScreenTime = rawScreenTime.filter(s => isInTimeframe(s));
+    const filteredScreenTime = rawScreenTime.filter(s => /^\d{2}:\d{2}$/.test(s.date) || isInTimeframe(s));
 
     // ── STEP 5: Filter counts ──────────────────────────────────────────
     console.group("📊 Filter Counts");
@@ -445,7 +464,9 @@ function computeTelemetryEngine(data, days) {
             habits: habitsResult,
             recommendation: suggestion
         },
-        alerts: alertsList
+        alerts: alertsList,
+        raw_backend: data.raw_backend,
+        current_activity: data.current_activity
     };
 }
 
@@ -487,7 +508,23 @@ function renderDashboard(computedData, days) {
         return;
     }
 
-    const { events = [], app_usage = [], expenses = [], screen_time = [], metrics = {}, insights = {}, alerts = [] } = computedData;
+    const { events = [], app_usage = [], expenses = [], screen_time = [], metrics = {}, insights = {}, alerts = [], raw_backend = null } = computedData;
+
+    // Update the live details grid from computed data (Task 9)
+    const liveAct = computedData.current_activity;
+    if (liveAct) {
+        const devEl = document.getElementById("live-device");
+        const durEl = document.getElementById("live-session-dur");
+        const activeEl = document.getElementById("live-today-active");
+        const idleEl = document.getElementById("live-idle-timer");
+        const lastEl = document.getElementById("live-last-activity");
+        
+        if (devEl) devEl.innerText = liveAct.device || "laptop";
+        if (durEl) durEl.innerText = liveAct.app !== "SYSTEM_IDLE" ? formatDuration(liveAct.duration) : "0s";
+        if (activeEl) activeEl.innerText = liveAct.today_active_time || "0.0 hrs";
+        if (idleEl) idleEl.innerText = liveAct.app === "SYSTEM_IDLE" ? formatDuration(liveAct.idle_timer) : "0s";
+        if (lastEl) lastEl.innerText = liveAct.last_activity || "--";
+    }
 
     // 🔍 LIFECYCLE LOGS
     console.log("COMPUTED DATA:", computedData);
@@ -554,13 +591,34 @@ function renderDashboard(computedData, days) {
     }
 
     const computedMetrics = {
-        ...metrics,
-        insights: {
+        productivity_score: raw_backend ? raw_backend.productivity_score : metrics.productivity_score,
+        estimated_score: raw_backend ? raw_backend.estimated_score : null,
+        estimate_confidence: raw_backend ? raw_backend.estimate_confidence : null,
+        focus_efficiency: raw_backend ? raw_backend.focus_efficiency : metrics.focus_efficiency,
+        burnout_score: raw_backend ? raw_backend.burnout_score : metrics.burnout_score,
+        burnout_risk: raw_backend ? raw_backend.burnout_risk : metrics.burnout_risk,
+        distraction_cost: raw_backend ? raw_backend.distraction_cost : metrics.distraction_cost,
+        currency: raw_backend ? (raw_backend.currency || "INR") : "INR",
+        total_spent: raw_backend ? (raw_backend.total_spent || 0) : 0,
+        deep_work_sessions: raw_backend ? (raw_backend.deep_work_sessions || 0) : 0,
+        total_sessions: raw_backend ? (raw_backend.total_sessions || 1) : 1,
+
+        // Map productive/distracting/neutral seconds so hasNoActivity is false
+        productive_time_seconds: raw_backend && raw_backend.productivity ? raw_backend.productivity.productive_minutes * 60 : 0,
+        distracting_time_seconds: raw_backend && raw_backend.productivity ? raw_backend.productivity.distracting_minutes * 60 : 0,
+        neutral_time_seconds: raw_backend && raw_backend.productivity ? raw_backend.productivity.neutral_minutes * 60 : 0,
+
+        insights: raw_backend && raw_backend.insights ? {
+            biggest_time_waster: raw_backend.insights.biggest_time_waster,
+            spending_pattern: raw_backend.insights.spending_pattern,
+            suggestion: raw_backend.insights.suggestion
+        } : {
             biggest_time_waster: insights.time_waster,
             spending_pattern: insights.expense_category,
             suggestion: insights.recommendation
         },
-        detected_habits: insights.habits.includes("No data") ? [] : insights.habits,
+        detected_habits: raw_backend ? (raw_backend.detected_habits || []) : (insights.habits.includes("No data") ? [] : insights.habits),
+        recommendations: raw_backend ? (raw_backend.recommendations || []) : [],
         alerts: alerts
     };
 
@@ -597,6 +655,168 @@ function renderDashboard(computedData, days) {
     }
 }
 
+let ws = null;
+function connectWebSocket() {
+    const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${window.location.host}/ws/live`;
+    
+    console.log("🔌 Connecting WebSocket to:", wsUrl);
+    ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+        console.log("✅ WebSocket connected");
+    };
+    
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === "ping") {
+                // Heartbeat keepalive (Task 10)
+                ws.send(JSON.stringify({ type: "pong" }));
+                return;
+            }
+            console.log("📥 WebSocket update received:", data);
+            handleLiveUpdate(data);
+        } catch (e) {
+            console.error("Error parsing WebSocket message:", e);
+        }
+    };
+    
+    ws.onclose = () => {
+        console.warn("❌ WebSocket closed — reconnecting in 3 seconds...");
+        setTimeout(connectWebSocket, 3000);
+    };
+    
+    ws.onerror = (err) => {
+        console.error("⚠️ WebSocket error:", err);
+    };
+}
+
+function formatDuration(sec) {
+    if (sec <= 0 || isNaN(sec)) return "0s";
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function handleLiveUpdate(data) {
+    // 1. Update Currently Active App Display
+    const active = data.last_active;
+    const appNameEl = document.getElementById("live-app-name");
+    const windowTitleEl = document.getElementById("live-window-title");
+    const pulseEl = document.getElementById("activity-pulse-el");
+    const badgeEl = document.getElementById("live-state-badge");
+
+    const IGNORE_APPS = new Set(["itsyoutrackerdaemon", "tracker.exe", "python.exe", "uvicorn.exe", "cmd.exe", "powershell.exe"]);
+    const isActiveUserApp = active && active.app !== "None" && active.status === "active" && !IGNORE_APPS.has(active.app.toLowerCase());
+
+    if (isActiveUserApp) {
+        if (appNameEl) appNameEl.innerText = active.app;
+        if (windowTitleEl) windowTitleEl.innerText = active.window;
+
+        // M2 fix: derive classification
+        let classification = "neutral";
+        if (active.classification) {
+            classification = active.classification;
+        } else {
+            const combinedStr = `${active.app} ${active.window || ""}`.toLowerCase();
+            if (/leetcode|github|stackoverflow|notion|docs\.|chatgpt|claude|gemini|copilot|vs code|vscode|cursor|pycharm|terminal|powershell|cmd/i.test(combinedStr)) {
+                classification = "productive";
+            } else if (/youtube|instagram|facebook|twitter|x\.com|reddit|netflix|spotify|steam|twitch|disney|hulu|prime/i.test(combinedStr)) {
+                classification = "distracting";
+            }
+        }
+
+        const classRules = {
+            "productive": { pulse: "pulse-green", badge: "badge-productive", text: "Productive" },
+            "distracting": { pulse: "pulse-rose", badge: "badge-distracting", text: "Distracting" },
+            "neutral": { pulse: "pulse-blue", badge: "badge-neutral", text: "Neutral" }
+        };
+        const state = classRules[classification] || classRules["neutral"];
+        if (pulseEl) pulseEl.className = `activity-pulse ${state.pulse}`;
+        if (badgeEl) {
+            badgeEl.className = `status-badge ${state.badge}`;
+            badgeEl.innerText = state.text.toUpperCase();
+        }
+    } else {
+        // Handle Idle, Inactive, or daemon-only states correctly
+        const isIdle = active && (active.app === "SYSTEM_IDLE" || active.app === "Idle" || (active.app && IGNORE_APPS.has(active.app.toLowerCase())));
+        if (appNameEl) appNameEl.innerText = isIdle ? "User is idle" : "System Idle / Standby";
+        if (windowTitleEl) windowTitleEl.innerText = isIdle ? "No user keyboard or mouse input detected recently." : "No active foreground window.";
+        if (pulseEl) pulseEl.className = "activity-pulse pulse-orange";
+        if (badgeEl) {
+            badgeEl.className = "status-badge badge-neutral";
+            badgeEl.innerText = "IDLE";
+        }
+    }
+
+    // Update the live details grid (Task 9)
+    const liveAct = data.current_activity;
+    if (liveAct) {
+        const devEl = document.getElementById("live-device");
+        const durEl = document.getElementById("live-session-dur");
+        const activeEl = document.getElementById("live-today-active");
+        const idleEl = document.getElementById("live-idle-timer");
+        const lastEl = document.getElementById("live-last-activity");
+        
+        if (devEl) devEl.innerText = liveAct.device || "laptop";
+        if (durEl) durEl.innerText = liveAct.app !== "SYSTEM_IDLE" ? formatDuration(liveAct.duration) : "0s";
+        if (activeEl) activeEl.innerText = liveAct.today_active_time || "0.0 hrs";
+        if (idleEl) idleEl.innerText = liveAct.app === "SYSTEM_IDLE" ? formatDuration(liveAct.idle_timer) : "0s";
+        if (lastEl) lastEl.innerText = liveAct.last_activity || "--";
+    }
+
+    // 2. Update Recent Events Stream (STEP 5)
+    if (data.delta_event) {
+        const container = document.getElementById("events-container");
+        if (container) {
+            const placeholder = container.querySelector(".loading-placeholder");
+            if (placeholder) placeholder.remove();
+
+            const row = document.createElement("div");
+            row.className = "event-row-item";
+            const rawTime = new Date(data.delta_event.timestamp);
+            const timeStr = rawTime.toLocaleTimeString();
+
+            // Map process name representation
+            let cleanProcess = "Unknown";
+            const processName = (data.delta_event.app_name || "").toLowerCase().trim();
+            if (processName.includes("code")) cleanProcess = "VS Code";
+            else if (processName.includes("chrome")) cleanProcess = "Chrome";
+            else if (processName.includes("firefox")) cleanProcess = "Firefox";
+            else if (processName.includes("cursor")) cleanProcess = "Cursor";
+            else if (processName.includes("terminal") || processName.includes("powershell") || processName.includes("cmd")) cleanProcess = "Terminal";
+            else if (processName.includes("youtube")) cleanProcess = "YouTube";
+            else if (processName.includes("instagram")) cleanProcess = "Instagram";
+            else cleanProcess = data.delta_event.app_name || "Unknown";
+
+            row.innerHTML = `
+                <span class="event-time-badge">[${timeStr}]</span>
+                <span class="event-type-badge">${data.delta_event.event_type}</span>
+                <span class="event-app-badge">${cleanProcess}</span>
+                <span class="event-title-badge">${data.delta_event.window_title ? data.delta_event.window_title.substring(0, 45) : "-"}</span>
+            `;
+            container.insertBefore(row, container.firstChild);
+            
+            // Trim to top 15 events
+            while (container.children.length > 15) {
+                container.lastChild.remove();
+            }
+        }
+    }
+
+    // 3. Update Doughnut Chart (STEP 5)
+    if (AppState.selectedDays === 1 && data.updated_summary) {
+        const labels = Object.keys(data.updated_summary);
+        const durations = Object.values(data.updated_summary);
+        const chartMappedUsages = labels.map((appLabel, index) => ({
+            app_name: appLabel,
+            duration_seconds: durations[index]
+        }));
+        renderCharts(chartMappedUsages, []);
+    }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     console.log("🚀 DOMContentLoaded fired — registering listeners");
     // Register Dropdown Events
@@ -616,16 +836,20 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function initializeDashboard() {
-    console.log("🔄 initializeDashboard called — starting polling loop");
+    console.log("🔄 initializeDashboard called — starting dashboard");
     showLoadingState();
     try {
         // Run initial full sync
         await syncDashboard();
-        
-        // Setup polling interval: unified cycle every 10 seconds
-        setInterval(syncDashboard, 10000);
-        console.log("⏰ Polling interval set (10s)");
-        
+
+        // Setup real-time WebSocket connection (primary update mechanism)
+        connectWebSocket();
+
+        // Resilience fallback poll: 60s — only matters if WebSocket has dropped.
+        // WebSocket pushes updates on every event; poll is a safety net, not the main loop.
+        setInterval(syncDashboard, 60000);
+        console.log("⏰ Resilience fallback poll set (60s). WebSocket is primary.");
+
     } catch (e) {
         console.error("Dashboard initial sync failed:", e);
         showErrorUI(e.message);
@@ -652,7 +876,9 @@ async function syncDashboard() {
             alerts: raw.alerts || [],
             analytics: raw.analytics || raw.metrics || {},
             // ✅ Pass meta through so computeTelemetryEngine can log timezone info
-            meta: raw.meta || null
+            meta: raw.meta || null,
+            raw_backend: raw,
+            current_activity: raw.current_activity || null
         };
         
         console.log("NORMALIZED DATA:", data); // DEBUG LOG
@@ -663,7 +889,7 @@ async function syncDashboard() {
             return;
         }
 
-        const session = resolveCurrentSession(data.events, data.app_usage);
+        const session = resolveCurrentSession(data.events, data.app_usage, raw.current_activity);
         AppState.currentSession = session;
         
         // compute telemetry engine first
