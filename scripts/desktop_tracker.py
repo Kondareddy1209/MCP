@@ -7,6 +7,13 @@ import uuid
 import threading
 import json
 from datetime import date, datetime
+import pytz
+
+IST = pytz.timezone("Asia/Kolkata")
+
+def get_ist_time() -> datetime:
+    return datetime.now(IST)
+
 
 # Adjust path to import backend classification module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -131,31 +138,44 @@ class ItsYouTracker:
         self.pending_title = None
         self.pending_since = 0
 
+        # Reliability properties (Task 11)
+        self.retry_queue = []
+        self.last_heartbeat_time = time.time()
+        self.paused = False
+
         
     def post_event(self, event_type: str, app_name: str = None, title: str = None, meta: dict = None):
         """Sends a raw event to the FastAPI event-driven endpoint."""
+        ist_now = get_ist_time()
+        url = f"{self.api_url}/events/"
         payload = {
             "event_type": event_type,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": ist_now.isoformat(),
             "app_name": app_name,
             "window_title": title,
             "metadata_json": json.dumps(meta) if meta else None
         }
         try:
-            r = requests.post(f"{self.api_url}/events/", json=payload, timeout=2)
+            r = requests.post(url, json=payload, timeout=2)
             if r.status_code != 200:
-                print(f"[-] Event upload failed: {r.text}")
+                print(f"[-] Event upload failed: {r.text}, buffering offline...")
+                self.retry_queue.append((url, payload))
+            else:
+                self._flush_retry_queue()
         except Exception as e:
-            print(f"[-] Network connection error posting event: {e}")
+            print(f"[-] Network error posting event: {e}, buffering offline...")
+            self.retry_queue.append((url, payload))
 
     def post_app_usage(self, app_name: str, duration: int, input_events: int, activity_score: float, idle: bool):
         """Posts an aggregated minute/app-switch usage block to backend."""
+        ist_now = get_ist_time()
+        url = f"{self.api_url}/app-usage/"
         payload = {
             "app_name": app_name,
             "duration_seconds": duration,
             "device": "laptop",
-            "date": date.today().isoformat(),
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "date": ist_now.date().isoformat(),
+            "timestamp": ist_now.isoformat(),
             "session_id": self.session_id,
             "activity_score": activity_score,
             "input_events": input_events,
@@ -163,13 +183,35 @@ class ItsYouTracker:
             "device_type": "desktop"
         }
         try:
-            r = requests.post(f"{self.api_url}/app-usage/", json=payload, timeout=2)
+            r = requests.post(url, json=payload, timeout=2)
             if r.status_code == 200:
                 print(f"[+] Aggregation: {app_name} | {duration}s | Score: {round(activity_score, 1)} | Idle: {idle}")
+                self._flush_retry_queue()
             else:
-                print(f"[-] Failed to upload usage: {r.text}")
+                print(f"[-] Failed to upload usage: {r.text}, buffering offline...")
+                self.retry_queue.append((url, payload))
         except Exception as e:
-            print(f"[-] Network error posting usage: {e}")
+            print(f"[-] Network error posting usage: {e}, buffering offline...")
+            self.retry_queue.append((url, payload))
+
+    def _flush_retry_queue(self):
+        """Flushes offline-buffered payloads in order (Task 11)"""
+        if not self.retry_queue:
+            return
+        print(f"[Tracker] Attempting to flush {len(self.retry_queue)} buffered offline payloads...")
+        flushed = []
+        for item in list(self.retry_queue):
+            url, payload = item
+            try:
+                r = requests.post(url, json=payload, timeout=2)
+                if r.status_code == 200:
+                    flushed.append(item)
+                else:
+                    break  # Stop to preserve sequence order
+            except Exception:
+                break
+        for item in flushed:
+            self.retry_queue.remove(item)
 
     def classify_state(self, app_name: str, score: float) -> str:
         """Classifies state dynamically based on rolling average."""
@@ -194,24 +236,62 @@ class ItsYouTracker:
             print("[-] Desktop Tracker requires Windows pywin32 API.")
             sys.exit(1)
             
-        print(f"[+] Starting it'syou Event-Driven Tracker...")
+        print(f"[+] Starting it'syou Event-Driven Tracker (Session Mode)...")
         print(f"[+] Session ID: {self.session_id}")
+        
+        # Recover unfinished session (Task 11)
+        try:
+            r = requests.get(f"{self.api_url}/last-active-app", timeout=2)
+            if r.status_code == 200:
+                last = r.json()
+                if last and last.get("status") == "active":
+                    last_app = last.get("app")
+                    last_window = last.get("window")
+                    print(f"[Tracker] Recovered unfinished session for '{last_app}'. Closing it cleanly.")
+                    # Close it with a blur event
+                    self.post_event("blur", last_app, last_window)
+        except Exception as e:
+            print(f"[Tracker] Unfinished session recovery query warning: {e}")
+
         self.input_tracker.start()
         
         # Fire initial SESSION_START
         self.post_event("SESSION_START", meta={"session_id": self.session_id})
         
         self.current_app, self.current_title, _ = get_active_window_details()
+        # Post initial focus event
+        self.post_event("focus", self.current_app, self.current_title)
         self.post_event("APP_SWITCH", self.current_app, self.current_title, {"previous_app": None})
+        self.app_start_time = time.time()
+        self.last_heartbeat_time = time.time()
         
         try:
             while True:
-                # 1. Fetch raw inputs gathered during the interval
+                if getattr(self, "paused", False):
+                    time.sleep(1.0)
+                    continue
+
+                # Heartbeat check (Task 11)
+                if time.time() - self.last_heartbeat_time >= 30.0:
+                    self.post_event("heartbeat", "ItsYouTrackerDaemon", "Active and running")
+                    self.last_heartbeat_time = time.time()
+
+                # 1. Fetch inputs gathered during the interval
                 inputs_in_interval = self.input_tracker.get_and_reset_count()
                 self.minute_input_sum += inputs_in_interval
                 
                 # Check active window details
                 app_name, title, _ = get_active_window_details()
+                
+                # Ignore tracker-related processes (Phase 1)
+                ignored_apps = ["tracker", "itsyoutrackerdaemon", "python", "uvicorn", "cmd", "powershell", "py", "unknown"]
+                if app_name.lower().strip() in ignored_apps:
+                    if self.current_app:
+                        app_name = self.current_app
+                        title = self.current_title
+                    else:
+                        app_name = "Idle"
+                        title = "System standby"
                 
                 # Register activity timestamps
                 if inputs_in_interval > 0:
@@ -220,24 +300,31 @@ class ItsYouTracker:
                         # Resume session
                         self.is_idle = False
                         self.post_event("IDLE_END", app_name, title)
+                        # Post focus on resume
+                        self.post_event("focus", app_name, title)
+                        self.app_start_time = time.time()
                         print("[+] System resumed from idle.")
                 
-                # 2. Check Idle/Inactivity state
+                # 2. Check Idle/Inactivity state (STEP 3: 60 seconds threshold)
                 time_since_input = time.time() - self.last_activity_time
-                if time_since_input >= 120:  # 2 minutes inactivity
+                if time_since_input >= 60:
                     if not self.is_idle:
                         self.is_idle = True
-                        self.post_event("IDLE_START", self.current_app, self.current_title)
-                        print("[-] System idle triggered (> 2 mins inactivity).")
+                        # Post blur on idle start
+                        if self.current_app:
+                            # STEP 2: ON blur(app): store duration in app_usage
+                            duration = int(time.time() - self.app_start_time - time_since_input)
+                            if duration > 0:
+                                self.post_app_usage(self.current_app, duration, self.minute_input_sum, 0.0, True)
+                            self.post_event("blur", self.current_app, self.current_title)
+                        
+                        # STEP 3: Insert SYSTEM_IDLE event
+                        self.post_event("idle", "SYSTEM_IDLE", "No user activity detected")
+                        print("[-] System idle triggered (> 60s inactivity).")
                         
                         # End current session
                         self.post_event("SESSION_END", meta={"session_id": self.session_id, "duration": time.time() - self.app_start_time})
                         
-                        # Flush current app usage
-                        duration = int(time.time() - self.app_start_time)
-                        if self.current_app and duration > 0:
-                            self.post_app_usage(self.current_app, duration, self.minute_input_sum, 0.0, True)
-                            
                         self.current_app = None
                         self.minute_input_sum = 0
                         
@@ -253,6 +340,7 @@ class ItsYouTracker:
                     self.current_app = app_name
                     self.current_title = title
                     self.app_start_time = time.time()
+                    self.post_event("focus", app_name, title)
                     self.post_event("APP_SWITCH", app_name, title, {"previous_app": "Idle"})
                     
                 # 3. Check App Switching with Debouncing (2.0s sustained threshold)
@@ -270,12 +358,17 @@ class ItsYouTracker:
                                 mins = max(0.1, duration / 60.0)
                                 score = self.minute_input_sum / mins
                                 
-                                # Post aggregated block
+                                # STEP 2: ON blur(app): store duration in app_usage
                                 self.post_app_usage(self.current_app, duration, self.minute_input_sum, score, self.is_idle)
                                 
                                 # Update rolling average if active
                                 if not self.is_idle and self.minute_input_sum > 0:
                                     self.rolling_avg_score = (self.rolling_avg_score * 4 + score) / 5.0
+                            
+                            # Post focus and blur events
+                            if self.current_app:
+                                self.post_event("blur", self.current_app, self.current_title)
+                            self.post_event("focus", app_name, title)
                             
                             # Fire APP_SWITCH event
                             self.post_event("APP_SWITCH", app_name, title, {"previous_app": self.current_app, "duration": duration})
@@ -289,43 +382,34 @@ class ItsYouTracker:
                 else:
                     self.pending_app = None
                     self.pending_title = None
-
-                    
-                # 4. Minute-based regular aggregation flush
-                minute_elapsed = time.time() - self.minute_start_time
-                if minute_elapsed >= 60.0:
-                    duration = int(time.time() - self.app_start_time)
-                    if self.current_app and duration > 0:
-                        score = self.minute_input_sum / (minute_elapsed / 60.0)
-                        state = self.classify_state(self.current_app, score)
-                        
-                        # Log input activity event
-                        self.post_event("INPUT_ACTIVITY", self.current_app, self.current_title, {
-                            "input_events": self.minute_input_sum,
-                            "activity_score": score,
-                            "classified_state": state
-                        })
-                        
-                        # Post usage aggregated block
-                        self.post_app_usage(self.current_app, duration, self.minute_input_sum, score, self.is_idle)
-                        
-                        # Update rolling average
-                        if score > 0:
-                            self.rolling_avg_score = (self.rolling_avg_score * 4 + score) / 5.0
-                            
-                    # Reset minute counters
-                    self.minute_start_time = time.time()
-                    self.minute_input_sum = 0
-                    self.app_start_time = time.time()  # reset interval start
                     
                 time.sleep(self.poll_interval)
                 
         except KeyboardInterrupt:
             print("\n[*] Shutting down Windows desktop tracker daemon...")
             self.input_tracker.stop()
+            # Post final blur and app usage before exit
+            if self.current_app:
+                duration = int(time.time() - self.app_start_time)
+                if duration > 0:
+                    self.post_app_usage(self.current_app, duration, self.minute_input_sum, 0.0, False)
+                self.post_event("blur", self.current_app, self.current_title)
             self.post_event("SESSION_END", meta={"session_id": self.session_id, "reason": "user_exit"})
-            
+                    
 if __name__ == "__main__":
+    import ctypes
+    # Win32 Mutex to ensure single tracker instance (Task 11)
+    MUTEX_NAME = "Global\\ItsYouTrackerMutex"
+    try:
+        kernel32 = ctypes.windll.kernel32
+        mutex_handle = kernel32.CreateMutexW(None, True, MUTEX_NAME)
+        last_error = kernel32.GetLastError()
+        if last_error == 183:  # ERROR_ALREADY_EXISTS
+            print("[-] Another instance of ItsYouTracker is already running. Exiting...")
+            sys.exit(0)
+    except Exception as e:
+        print(f"[!] Mutex warning: {e}")
+
     api = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000/api"
     tracker = ItsYouTracker(api_url=api)
     tracker.run()
