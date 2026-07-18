@@ -54,9 +54,17 @@
             <div class="activity-info">
                 <div id="activity-pulse-el" class="activity-pulse pulse-blue"></div>
                 <div class="active-details">
-                    <h4>Current Foreground Session</h4>
+                    <h4>Currently Active</h4>
                     <p id="live-app-name">Retrieving active session...</p>
                     <div id="live-window-title" class="active-window-title">Initializing...</div>
+                    
+                    <div class="live-grid-details" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
+                        <div><i class="fa-solid fa-laptop"></i> Device: <span id="live-device" style="color: var(--text-primary); font-weight: 600;">--</span></div>
+                        <div><i class="fa-solid fa-hourglass-half"></i> Session: <span id="live-session-dur" style="color: var(--text-primary); font-weight: 600;">--</span></div>
+                        <div><i class="fa-solid fa-chart-simple"></i> Today's Active: <span id="live-today-active" style="color: var(--text-primary); font-weight: 600;">--</span></div>
+                        <div><i class="fa-solid fa-moon"></i> Idle Timer: <span id="live-idle-timer" style="color: var(--text-primary); font-weight: 600;">--</span></div>
+                        <div><i class="fa-solid fa-clock"></i> Last Activity: <span id="live-last-activity" style="color: var(--text-primary); font-weight: 600;">--</span></div>
+                    </div>
                 </div>
             </div>
             <div class="activity-meta">
@@ -161,6 +169,6 @@
     </div>
 
     <!-- Main ES Module Script entry point -->
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.js?v=2.0.2"></script>
 </body>
 </html>
