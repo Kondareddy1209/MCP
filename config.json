@@ -1,4 +1,5 @@
 {
   "hourly_rate": 200,
-  "currency": "INR"
+  "currency": "INR",
+  "run_intervention_engine": false
 }
