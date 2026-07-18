@@ -13,8 +13,14 @@ def read_app_usage(session: Session = Depends(get_session)):
 
 @router.post("/", response_model=AppUsage)
 def add_app_usage(app_usage: AppUsage, session: Session = Depends(get_session)):
-    return create_app_usage(session, app_usage)
+    created = create_app_usage(session, app_usage)
+    from services.analytics import invalidate_analytics_cache
+    invalidate_analytics_cache()
+    return created
 
 @router.post("/bulk", response_model=List[AppUsage])
 def add_app_usage_bulk(app_usages: List[AppUsage], session: Session = Depends(get_session)):
-    return bulk_create_app_usage(session, app_usages)
+    created = bulk_create_app_usage(session, app_usages)
+    from services.analytics import invalidate_analytics_cache
+    invalidate_analytics_cache()
+    return created
