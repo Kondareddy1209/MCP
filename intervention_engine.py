@@ -1,11 +1,25 @@
+"""
+intervention_engine.py — it'syou Adaptive Intervention Engine
+Runs periodic checks against live analytics and fires structured alerts when
+behavioral thresholds are exceeded.
+
+Fixes applied:
+  C1: Reads correct payload key paths from the dashboard summary dict.
+  C2: Added `from sqlmodel import select` import.
+  C3: Delegates burnout scoring to BehaviorEngine.analyze_burnout() instead of
+      duplicating the logic here with different thresholds.
+"""
 import time
 import logging
 from datetime import datetime, date
-from sqlmodel import Session
+from sqlmodel import Session, select
 from db import engine
-import analytics
+from services.analytics import get_cached_dashboard_summary
+from services.session_engine import SessionEngine
+from services.behavior_engine import BehaviorEngine
+from models import AppUsage, UsageEvent, AppClassification
 
-# Setup structured intervention logging
+# ─── Structured intervention logging ────────────────────────────────────────
 logging.basicConfig(
     filename="interventions.log",
     level=logging.INFO,
@@ -15,11 +29,12 @@ console_logger = logging.StreamHandler()
 console_logger.setLevel(logging.INFO)
 logging.getLogger().addHandler(console_logger)
 
+
 class InterventionEngine:
     def __init__(self, check_interval_seconds: int = 60, cooldown_minutes: int = 15):
         self.check_interval = check_interval_seconds
         self.cooldown_period = cooldown_minutes * 60  # convert to seconds
-        self.cooldowns = {}  # {alert_type: last_trigger_timestamp}
+        self.cooldowns: dict = {}  # {alert_type: last_trigger_timestamp}
         self.running = False
 
     def is_cooldown_active(self, alert_type: str) -> bool:
@@ -33,55 +48,66 @@ class InterventionEngine:
         self.cooldowns[alert_type] = time.time()
         log_msg = f"[INTERVENTION] [{priority}] {message}"
         logging.info(log_msg)
-        
-        # Here we could hook in OS desktop notifications:
-        # e.g., using win10toast or plyer if installed, or writing to a dynamic backend notifications table.
+        # Hook point: could send OS desktop notifications via win10toast or plyer
 
     def run_check(self):
         """Audits current active user metrics against baseline averages."""
         with Session(engine) as session:
-            # 1. Fetch baseline average (last 7 days)
-            baseline = analytics.calculate_analytics(session, 7)
-            # 2. Fetch today's current usage (last 1 day)
-            today = analytics.calculate_analytics(session, 1)
+            # Baseline: 7-day aggregate from analytics service (single source of truth)
+            baseline = get_cached_dashboard_summary(session, 7)
+            # Today: 1-day aggregate
+            today_data = get_cached_dashboard_summary(session, 1)
 
-        # Baseline calculations (divided by 7 to get daily average)
-        avg_distraction_seconds = baseline["distracting_time_seconds"] / 7.0
-        
-        today_distraction_seconds = today["distracting_time_seconds"]
-        today_active_seconds = today["productive_time_seconds"] + today_distraction_seconds
-        total_usage_hours = today_active_seconds / 3600.0
+        # C1 fix: use correct nested key paths from the dashboard summary payload.
+        # The payload structure is: {"productivity": {"distracting_minutes": ...}, ...}
+        baseline_dist_min = baseline.get("productivity", {}).get("distracting_minutes", 0.0)
+        today_dist_min = today_data.get("productivity", {}).get("distracting_minutes", 0.0)
 
-        # Trigger 1: Distraction overload (> avg * threshold)
-        # Threshold is set to 1.30 (30% above average)
+        # Convert minutes to seconds for threshold calculations
+        avg_distraction_seconds = (baseline_dist_min / 7.0) * 60.0
+        today_distraction_seconds = today_dist_min * 60.0
+        today_productive_seconds = today_data.get("productivity", {}).get("productive_minutes", 0.0) * 60.0
+        today_active_seconds = today_productive_seconds + today_distraction_seconds
+
+        # ── Trigger 1: Distraction overload (> avg * 1.30 threshold) ────────────
         if avg_distraction_seconds > 0 and today_distraction_seconds > (avg_distraction_seconds * 1.30):
             if not self.is_cooldown_active("DISTRACTION_OVERLOAD"):
                 priority = "HIGH" if today_distraction_seconds > (avg_distraction_seconds * 2.0) else "MEDIUM"
-                msg = f"Distraction overload! You spent {round(today_distraction_seconds/60)} mins on distracting apps today, exceeding your average by 30%."
+                mins = round(today_dist_min)
+                msg = (
+                    f"Distraction overload! You spent {mins} mins on distracting apps today, "
+                    f"exceeding your {round(baseline_dist_min / 7.0, 1)}-min daily average by ≥30%."
+                )
                 self.trigger_alert("DISTRACTION_OVERLOAD", priority, msg)
 
-        # Trigger 2: Burnout Alert (usage > 8 hours AND late night usage after 11 PM)
-        has_late_night = False
-        with Session(engine) as session:
-            from models import AppUsage
-            today_usages = session.exec(select(AppUsage).where(AppUsage.date == date.today())).all()
-            for u in today_usages:
-                ts = u.timestamp
-                if isinstance(ts, str):
-                    try:
-                        cleaned = ts.replace("Z", "").split(".")[0]
-                        ts = datetime.strptime(cleaned, "%Y-%m-%dT%H:%M:%S")
-                    except Exception:
-                        continue
-                if ts.hour >= 23 or ts.hour < 4:
-                    has_late_night = True
-                    break
+        # ── Trigger 2: Burnout Alert (C3 fix — delegate to BehaviorEngine) ─────
+        # Re-fetch raw sessions for burnout analysis so BehaviorEngine owns the math.
+        try:
+            with Session(engine) as session:
+                today_date = date.today()
+                from datetime import datetime, time as dtime
+                start_ts = datetime.combine(today_date, dtime.min)
+                usages = session.exec(
+                    select(AppUsage).where(AppUsage.date == today_date)
+                ).all()
+                events = session.exec(
+                    select(UsageEvent).where(UsageEvent.timestamp >= start_ts)
+                ).all()
 
-        if total_usage_hours > 8.0 and has_late_night:
-            if not self.is_cooldown_active("BURNOUT_WARNING"):
-                msg = "🚨 Critical Overwork Warning: You've exceeded 8 hours of usage today with active late-night sessions. Mandatory lockoff recommended!"
-                self.trigger_alert("BURNOUT_WARNING", "HIGH", msg)
+            sessions = SessionEngine.reconstruct_sessions(usages, events)
+            burnout = BehaviorEngine.analyze_burnout(sessions)
 
+            if burnout.score is not None and burnout.score > 70:
+                if not self.is_cooldown_active("BURNOUT_WARNING"):
+                    warnings_text = "; ".join(burnout.warnings) if burnout.warnings else "Overwork detected."
+                    msg = (
+                        f"🚨 High Burnout Risk (index {burnout.score}/100): {warnings_text} "
+                        "Consider a mandatory lockoff or extended break."
+                    )
+                    self.trigger_alert("BURNOUT_WARNING", "HIGH", msg)
+
+        except Exception as e:
+            logging.error(f"Burnout check failed: {e}")
 
     def start_monitoring(self):
         self.running = True
@@ -95,6 +121,7 @@ class InterventionEngine:
 
     def stop_monitoring(self):
         self.running = False
+
 
 if __name__ == "__main__":
     engine_inst = InterventionEngine(check_interval_seconds=60)
