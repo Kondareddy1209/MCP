@@ -13,4 +13,7 @@ def read_classifications(session: Session = Depends(get_session)):
 
 @router.post("/", response_model=AppClassification)
 def record_classification(classification: AppClassification, session: Session = Depends(get_session)):
-    return upsert_classification(session, classification)
+    res = upsert_classification(session, classification)
+    from services.analytics import invalidate_analytics_cache
+    invalidate_analytics_cache()
+    return res
