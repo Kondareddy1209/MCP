@@ -144,8 +144,8 @@ function renderScreenTimeLine(screenTime) {
     // Sort dates chronologically
     const sortedDates = Object.keys(dateGroups).sort();
     
-    // Take the last 7 entries for cleaner line charts
-    const displayDates = sortedDates.slice(-7);
+    // Take the last 7 entries for daily views, but all hours for the daily breakdown (days = 1)
+    const displayDates = sortedDates.length <= 24 ? sortedDates : sortedDates.slice(-7);
     const laptopData = displayDates.map(d => dateGroups[d].laptop.toFixed(1));
     const mobileData = displayDates.map(d => dateGroups[d].mobile.toFixed(1));
 
@@ -178,10 +178,38 @@ function renderScreenTimeLine(screenTime) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { labels: { color: '#f1f3f9', font: { family: 'Outfit' } } }
+                legend: { labels: { color: '#f1f3f9', font: { family: 'Outfit' } } },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += context.parsed.y + ' hrs';
+                            }
+                            return label;
+                        }
+                    }
+                }
             },
             scales: {
-                y: { grid: { color: 'rgba(255, 255, 255, 0.04)' }, ticks: { color: '#8e94a9' } },
+                y: { 
+                    grid: { color: 'rgba(255, 255, 255, 0.04)' }, 
+                    ticks: { 
+                        color: '#8e94a9',
+                        callback: function(value) {
+                            return value + 'h';
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Hours',
+                        color: '#8e94a9',
+                        font: { family: 'Outfit', size: 10 }
+                    }
+                },
                 x: { grid: { display: false }, ticks: { color: '#8e94a9' } }
             }
         }
@@ -189,8 +217,12 @@ function renderScreenTimeLine(screenTime) {
 }
 
 function formatDateLabel(dateStr) {
+    if (/^\d{2}:\d{2}$/.test(dateStr)) {
+        return dateStr;
+    }
     try {
         const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     } catch (e) {
         return dateStr;
