@@ -91,7 +91,8 @@ def _is_duplicate_usage(session: Session, item: AppUsage) -> bool:
     existing = session.exec(
         select(AppUsage).where(
             AppUsage.app_name == item.app_name,
-            AppUsage.date == item.date
+            AppUsage.date == item.date,
+            AppUsage.device == item.device
         )
     ).all()
 
