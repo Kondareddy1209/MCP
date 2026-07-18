@@ -12,24 +12,20 @@ This document outlines options for capturing real application usage and screen t
 * **Cons**: High friction, lacks granularity.
 
 ### 2. Export via Third-Party Apps (Recommended for local setup)
-* **How it works**: Use popular screen time applications like **StayFree** or **ActionDash** which support exporting app usage data as CSV or JSON. A simple Python CLI utility (e.g. `scripts/import_stayfree.py`) can read the exported files and push them to the Antigravity API.
+* **How it works**: Use popular screen time applications like **StayFree** which support exporting app usage data as CSV. A Python CLI utility is provided at `scripts/sync_mobile.py` to read StayFree CSV exports, normalize values, prevent duplicates, and ingest them to the backend API.
 * **StayFree Export Format**: CSV containing columns `Package Name`, `App Name`, `Date`, `Duration`.
-* **Transform Script Logic**:
-  ```python
-  import pandas as pd
-  import requests
+* **Synchronization CLI Script**: Run the sync utility from your command line:
+  ```powershell
+  # Test parsing and mapping without committing to the database:
+  python scripts/sync_mobile.py path/to/stayfree_export.csv --dry-run
 
-  df = pd.read_csv("stayfree_export.csv")
-  payload = []
-  for idx, row in df.iterrows():
-      payload.append({
-          "app_name": row["App Name"],
-          "duration_seconds": int(row["Duration (Seconds)"]),
-          "device": "mobile",
-          "date": row["Date"]
-      })
-  requests.post("http://localhost:8000/api/app-usage/bulk", json=payload)
+  # Run full synchronization to the database:
+  python scripts/sync_mobile.py path/to/stayfree_export.csv
   ```
+* **Key Features**:
+  - **Auto-deduplication**: Checks the database on start and skips rows that have already been imported to prevent double counting.
+  - **App Normalization**: Automatically maps common Android package IDs (e.g. `com.android.chrome`) to clean display names (e.g. `Chrome`) so that desktop and mobile usage statistics merge seamlessly.
+  - **Robust Parsing**: Supports flexible CSV date parsing formats and parses durations in both seconds and formatted time (`HH:MM:SS`) columns.
 
 ### 3. Native Android Application (Advanced Production Route)
 * **How it works**: Write a minimal background service on Android using Kotlin/Java that queries the OS's native `UsageStatsManager` API and periodically pushes data to the local server endpoint.
