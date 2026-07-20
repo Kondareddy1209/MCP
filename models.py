@@ -86,6 +86,16 @@ class UsageEvent(SQLModel, table=True):
     metadata_json: str | None = None
 
 
+class PushSubscription(SQLModel, table=True):
+    __tablename__ = "push_subscriptions"
+    id: int | None = Field(default=None, primary_key=True)
+    endpoint: str = Field(index=True)
+    subscription_json: str
+    user_agent: str | None = None
+    device: str = "mobile"
+    created_at: datetime.datetime = Field(default_factory=_ist_now)
+
+
 # ─── Pydantic Metrics & Health Models (SOLID Foundations) ───────────────
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
