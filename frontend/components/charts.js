@@ -125,7 +125,7 @@ function renderScreenTimeLine(screenTime) {
                 maintainAspectRatio: false,
                 plugins: { legend: { labels: { color: '#8e94a9', font: { family: 'Outfit' } } } },
                 scales: {
-                    y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8e94a9' }, min: 0, max: 1 },
+                    y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#8e94a9' }, min: 0, suggestedMax: 1 },
                     x: { grid: { display: false }, ticks: { color: '#8e94a9' } }
                 }
             }
@@ -208,7 +208,8 @@ function renderScreenTimeLine(screenTime) {
                         text: 'Hours',
                         color: '#8e94a9',
                         font: { family: 'Outfit', size: 10 }
-                    }
+                    },
+                    min: 0
                 },
                 x: { grid: { display: false }, ticks: { color: '#8e94a9' } }
             }
