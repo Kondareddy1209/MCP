@@ -1,0 +1,5 @@
+{
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZAG+wH2ddwYQHmVPfUaX4kysdreL\nH27Mx37w6wkiI7QGHnfjCCWscVUw8sov8F+sKaXEdp5qxxyZeb8zE4482Q==\n-----END PUBLIC KEY-----\n",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgDWuh6A2iOEtdKmlo\n/VlSt33CKNJGa3vvGleXwk/XDw+hRANCAARkAb7AfZ13BhAeZU99RpfiTKx2t4sf\nbszHfvDrCSIjtAYed+MIJaxxVTDyyi/wX6wppcR2nmrHHJl5vzMTjjzZ\n-----END PRIVATE KEY-----\n",
+  "subject": "mailto:admin@example.com"
+}
