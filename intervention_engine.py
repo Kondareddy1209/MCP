@@ -18,6 +18,7 @@ from services.analytics import get_cached_dashboard_summary
 from services.session_engine import SessionEngine
 from services.behavior_engine import BehaviorEngine
 from models import AppUsage, UsageEvent, AppClassification
+from services.notification_dispatch import dispatch_notification, should_send_alert, mark_alert_sent
 
 # ─── Structured intervention logging ────────────────────────────────────────
 logging.basicConfig(
@@ -31,24 +32,22 @@ logging.getLogger().addHandler(console_logger)
 
 
 class InterventionEngine:
-    def __init__(self, check_interval_seconds: int = 60, cooldown_minutes: int = 15):
+    def __init__(self, check_interval_seconds: int = 60, cooldown_minutes: int = 30):
         self.check_interval = check_interval_seconds
         self.cooldown_period = cooldown_minutes * 60  # convert to seconds
-        self.cooldowns: dict = {}  # {alert_type: last_trigger_timestamp}
         self.running = False
 
     def is_cooldown_active(self, alert_type: str) -> bool:
-        last_time = self.cooldowns.get(alert_type)
-        if last_time and (time.time() - last_time) < self.cooldown_period:
-            return True
-        return False
+        return not should_send_alert(alert_type, cooldown_minutes=max(1, int(self.cooldown_period / 60)))
 
     def trigger_alert(self, alert_type: str, priority: str, message: str):
         """Dispatches an alert and updates cooldown tracker."""
-        self.cooldowns[alert_type] = time.time()
+        if not should_send_alert(alert_type, cooldown_minutes=max(1, int(self.cooldown_period / 60))):
+            return
         log_msg = f"[INTERVENTION] [{priority}] {message}"
         logging.info(log_msg)
-        # Hook point: could send OS desktop notifications via win10toast or plyer
+        dispatch_notification(title=alert_type.replace("_", " ").title(), body=message, priority=priority, source="intervention")
+        mark_alert_sent(alert_type)
 
     def run_check(self):
         """Audits current active user metrics against baseline averages."""
