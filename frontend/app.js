@@ -53,6 +53,8 @@ function getAppName(log) {
     if (processName === "chrome.exe" || processName === "chrome") return "Chrome";
     if (processName === "firefox.exe" || processName === "firefox") return "Firefox";
     if (processName === "msedge.exe" || processName === "msedge") return "Edge";
+    if (processName === "winword.exe" || processName === "winword") return "Word";
+    if (processName === "powerpnt.exe" || processName === "powerpnt" || processName === "powerpoint") return "PowerPoint";
     
     // Partial matches for terminal/shell tools
     if (processName.includes("cmd") || processName.includes("powershell") || processName.includes("terminal") || processName.includes("wt.exe")) return "Terminal";
@@ -163,7 +165,7 @@ function resolveCurrentSession(events, usage, currentActivityBackend) {
     // PRIORITY 1 → usage (more reliable)
     if (latestUsage) {
         return {
-            app: latestUsage.app_name || latestUsage.app || "Background",
+            app: getAppName({ app_name: latestUsage.app_name || latestUsage.app || "Background" }),
             title: latestUsage.window_title || latestUsage.window || "Active session"
         };
     }
@@ -171,7 +173,7 @@ function resolveCurrentSession(events, usage, currentActivityBackend) {
     // PRIORITY 2 → events
     if (latestEvent) {
         return {
-            app: latestEvent.process || latestEvent.app_name || latestEvent.app || "Background",
+            app: getAppName({ app_name: latestEvent.process || latestEvent.app_name || latestEvent.app || "Background" }),
             title: latestEvent.window_title || latestEvent.title || "No window title"
         };
     }
@@ -191,16 +193,17 @@ function renderCurrentSession(session) {
     const pulseEl = document.getElementById("activity-pulse-el");
     const badgeEl = document.getElementById("live-state-badge");
 
-    if (appNameEl) appNameEl.textContent = session.app;
+    const displayApp = getAppName({ app_name: session.app });
+    if (appNameEl) appNameEl.textContent = displayApp;
     if (windowTitleEl) windowTitleEl.textContent = session.title;
 
     if (pulseEl && badgeEl) {
-        if (session.app === "Idle") {
+        if (displayApp === "Idle") {
             pulseEl.className = "activity-pulse pulse-orange";
             badgeEl.className = "status-badge badge-neutral";
             badgeEl.innerText = "IDLE";
         } else {
-            const cat = getCategory(session.app);
+            const cat = getCategory(displayApp);
             if (cat === "productive") {
                 pulseEl.className = "activity-pulse pulse-green";
                 badgeEl.className = "status-badge badge-productive";
@@ -656,6 +659,68 @@ function renderDashboard(computedData, days) {
 }
 
 let ws = null;
+let notificationPermissionRequested = false;
+
+function base64UrlToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
+
+async function requestDesktopNotificationPermission() {
+    if (!('Notification' in window) || notificationPermissionRequested) return;
+    notificationPermissionRequested = true;
+    if (Notification.permission === 'default') {
+        try {
+            await Notification.requestPermission();
+        } catch (err) {
+            console.warn('Notification permission prompt failed:', err);
+        }
+    }
+}
+
+async function registerPushSubscription() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    try {
+        const swRegistration = await navigator.serviceWorker.register('/sw.js');
+        const existing = await swRegistration.pushManager.getSubscription();
+        if (existing) return;
+
+        const vapidResponse = await fetch('/api/push/vapid-public-key');
+        const vapidData = await vapidResponse.json();
+        if (!vapidData.publicKey) return;
+
+        const subscription = await swRegistration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: base64UrlToUint8Array(vapidData.publicKey),
+        });
+
+        await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                endpoint: subscription.endpoint,
+                keys: subscription.toJSON().keys,
+                userAgent: navigator.userAgent,
+                device: /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+            }),
+        });
+    } catch (err) {
+        console.warn('Push registration skipped:', err);
+    }
+}
+
+async function setupNotifications() {
+    await requestDesktopNotificationPermission();
+    await registerPushSubscription();
+}
 function connectWebSocket() {
     const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProto}//${window.location.host}/ws/live`;
@@ -674,6 +739,13 @@ function connectWebSocket() {
                 // Heartbeat keepalive (Task 10)
                 ws.send(JSON.stringify({ type: "pong" }));
                 return;
+            }
+            if (data.type === "alert" && 'Notification' in window && Notification.permission === 'granted') {
+                try {
+                    new Notification(data.title || 'Alert', { body: data.body || '' });
+                } catch (err) {
+                    console.warn('Browser notification failed:', err);
+                }
             }
             console.log("📥 WebSocket update received:", data);
             handleLiveUpdate(data);
@@ -819,6 +891,7 @@ function handleLiveUpdate(data) {
 
 document.addEventListener("DOMContentLoaded", () => {
     console.log("🚀 DOMContentLoaded fired — registering listeners");
+    setupNotifications();
     // Register Dropdown Events
     const rangeSelect = document.getElementById("days-range-select");
     rangeSelect.addEventListener("change", (e) => {
