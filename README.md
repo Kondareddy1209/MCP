@@ -1,4 +1,4 @@
-﻿# it'syou — Intelligent Screen Time & Productivity Tracker
+# it'syou — Intelligent Screen Time & Productivity Tracker
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -14,30 +14,61 @@
 The following diagram illustrates how the `it'syou` ecosystem monitors user activity, processes data locally, and exposes interfaces to both the user and AI assistants:
 
 ```mermaid
-graph TD
-    User([User]) <-->|Interacts| OS[Operating System]
+flowchart TD
+    User([User])
+    OS[Operating System]
     
-    subgraph Data Ingestion
-        Desktop[Desktop Tracker Daemon] -->|Mouse/Key activity & Window Focus| DB[(SQLite: itsyou_clean.db)]
-        Mobile[Mobile Sync via ADB] -->|Extracts Android Package Usage| DB
+    subgraph Ingestion["Data Ingestion"]
+        Desktop["Desktop Tracker Daemon<br>(Mouse/Key activity & Window Focus)"]
+        Mobile["Mobile ADB Sync Script<br>(Extracts Android Package Usage)"]
+        DB[("SQLite: itsyou_clean.db")]
     end
     
-    OS -.->|Activity Events| Desktop
-    
-    subgraph Core Platform
-        DB <-->|SQLModel / ORM| FastAPI[FastAPI Backend: main.py]
-        FastAPI <-->|WebSocket / REST| WebUI[Web Dashboard SPA]
-        FastAPI -->|Push Alerts| BrowserNotification[Web Push Notification]
+    subgraph AI["AI Integration"]
+        Client["Claude / Cursor / AI Client"]
+        MCP["MCP Server: mcp_server.py"]
     end
     
-    subgraph AI Integration
-        MCP[MCP Server: mcp_server.py] <-->|Direct SQL Query & Cache Access| DB
-        MCP <-->|Control REST Hooks| FastAPI
-        LLM[Claude / Cursor / AI Client] <-->|JSON-RPC via stdio| MCP
+    subgraph Core["Core Platform"]
+        Cache["Analytics Service - cache"]
+        Session["Session Engine"]
+        Behavior["Behavior Engine (pure math)"]
+        FastAPI["FastAPI: main.py"]
+        UI["Web Dashboard SPA"]
+    end
+    
+    subgraph Alert["Alerting"]
+        Engine["Intervention Engine<br>(config-gated loop)"]
+        Dispatch["notify_dispatch"]
+        Bot[("CallMeBot - external service")]
+        Laptop["Laptop Browser Notification"]
+        Phone["User's Phone"]
     end
 
-    User <-->|Views WebUI| WebUI
-    User <-->|Chat Console| LLM
+    %% Connections
+    User -->|Interacts| OS
+    OS -->|Activity Events| Desktop
+    Desktop --> DB
+    Mobile --> DB
+    
+    User -->|Chat Console| Client
+    Client -->|JSON-RPC via stdio| MCP
+    MCP -->|Direct SQL Query & Cache Access| DB
+    MCP -->|Control REST Hooks| FastAPI
+    
+    DB <-->|SQLModel / ORM| Cache
+    Cache --> Session
+    Cache --> Behavior
+    Cache <-->|REST / WebSocket| FastAPI
+    FastAPI <-->|WebSocket / REST| UI
+    User -->|Views WebUI| UI
+    
+    Engine -->|reads| Cache
+    Engine -->|trigger_alert| Dispatch
+    Dispatch -->|WebSocket broadcast| UI
+    Dispatch -->|HTTP GET| Bot
+    UI -->|Notification API| Laptop
+    Bot -->|WhatsApp message| Phone
 ```
 
 ---
