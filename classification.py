@@ -1,6 +1,54 @@
 import re
 from typing import Tuple, Dict
 
+
+PACKAGE_MAPPING = {
+    "com.android.chrome": "Chrome",
+    "org.mozilla.firefox": "Firefox",
+    "com.google.android.youtube": "YouTube",
+    "com.instagram.android": "Instagram",
+    "com.facebook.katana": "Facebook",
+    "com.twitter.android": "Twitter",
+    "com.whatsapp": "WhatsApp",
+    "com.spotify.music": "Spotify",
+    "com.reddit.frontpage": "Reddit",
+    "com.valvesoftware.android.steam.community": "Steam",
+    "com.slack": "Slack",
+    "com.microsoft.teams": "Teams",
+    "com.zhiliaoapp.musically": "TikTok",
+    "com.netflix.mediaclient": "Netflix",
+}
+
+DISPLAY_NAME_MAPPING = {
+    "chrome": "Chrome",
+    "firefox": "Firefox",
+    "msedge": "Edge",
+    "edge": "Edge",
+    "code": "VS Code",
+    "vscode": "VS Code",
+    "cursor": "Cursor",
+    "terminal": "Terminal",
+    "powershell": "PowerShell",
+    "cmd": "Command Prompt",
+    "word": "Word",
+    "winword": "Word",
+    "excel": "Excel",
+    "powerpoint": "PowerPoint",
+    "slack": "Slack",
+    "teams": "Teams",
+    "youtube": "YouTube",
+    "instagram": "Instagram",
+    "facebook": "Facebook",
+    "twitter": "Twitter",
+    "whatsapp": "WhatsApp",
+    "discord": "Discord",
+    "spotify": "Spotify",
+    "steam": "Steam",
+    "reddit": "Reddit",
+    "notion": "Notion",
+    "explorer": "File Explorer",
+}
+
 class AppClassifier:
     def __init__(self):
         # Caching layer to avoid repetitive evaluation
@@ -80,24 +128,21 @@ def auto_classify(app_name: str, window_title: str = "", browser_url: str = "") 
     classification, _ = classifier.classify(app_name, window_title, browser_url)
     return classification
 
-PACKAGE_MAPPING = {
-    "com.android.chrome": "Chrome",
-    "org.mozilla.firefox": "Firefox",
-    "com.google.android.youtube": "YouTube",
-    "com.instagram.android": "Instagram",
-    "com.facebook.katana": "Facebook",
-    "com.twitter.android": "Twitter",
-    "com.whatsapp": "WhatsApp",
-    "com.spotify.music": "Spotify",
-    "com.reddit.frontpage": "Reddit",
-    "com.valvesoftware.android.steam.community": "Steam",
-    "com.slack": "Slack",
-    "com.microsoft.teams": "Teams",
-    "com.zhiliaoapp.musically": "TikTok",
-    "com.netflix.mediaclient": "Netflix",
-}
-
 def normalize_app_name(app_name: str) -> str:
     """Normalizes package names / app names across platforms to their common display names."""
+    if not app_name:
+        return "Unknown"
+
     clean = app_name.lower().strip()
-    return PACKAGE_MAPPING.get(clean, app_name)
+    if clean in PACKAGE_MAPPING:
+        return PACKAGE_MAPPING[clean]
+
+    short_name = clean.split("/")[-1].split("\\")[-1]
+    short_name = short_name.replace(".exe", "").replace("_", " ").replace("-", " ").strip()
+    if short_name in DISPLAY_NAME_MAPPING:
+        return DISPLAY_NAME_MAPPING[short_name]
+
+    if short_name:
+        return " ".join(part.capitalize() for part in short_name.split())
+
+    return app_name
