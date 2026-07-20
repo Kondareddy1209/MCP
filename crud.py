@@ -5,7 +5,7 @@ All timestamps are IST-aware.
 """
 from sqlmodel import Session, select
 from datetime import date, datetime, timezone, timedelta
-from models import Expense, AppUsage, DailyScreenTime, AppClassification, ProductivityMetricsCache, UsageEvent
+from models import Expense, AppUsage, DailyScreenTime, AppClassification, ProductivityMetricsCache, UsageEvent, PushSubscription
 from typing import List
 
 # ─── IST timezone helper ────────────────────────────────────────────────
@@ -255,3 +255,29 @@ def get_usage_events(session: Session, limit: int = 100) -> List[UsageEvent]:
     return session.exec(
         select(UsageEvent).order_by(UsageEvent.timestamp.desc()).limit(limit)
     ).all()
+
+
+# ─── Push Subscriptions ─────────────────────────────────────────────────
+def upsert_push_subscription(session: Session, subscription: PushSubscription) -> PushSubscription:
+    existing = session.exec(
+        select(PushSubscription).where(PushSubscription.endpoint == subscription.endpoint)
+    ).first()
+    if existing:
+        existing.subscription_json = subscription.subscription_json
+        existing.user_agent = subscription.user_agent
+        existing.device = subscription.device or existing.device
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+
+    if not subscription.created_at:
+        subscription.created_at = _ist_now()
+    session.add(subscription)
+    session.commit()
+    session.refresh(subscription)
+    return subscription
+
+
+def get_push_subscriptions(session: Session) -> List[PushSubscription]:
+    return session.exec(select(PushSubscription).order_by(PushSubscription.created_at.desc())).all()
