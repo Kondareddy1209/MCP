@@ -454,6 +454,32 @@ class TestNewRegressions:
         assert "last_activity" in act
         assert "duration" in act
 
+    def test_app_name_casing_is_consistent_across_paths(self):
+        """Same raw app identifier must resolve to the same display name in activity and distribution payloads."""
+        now = datetime.combine(datetime.now().date(), datetime.max.time()).replace(microsecond=0)
+        client.post("/api/events/", json={
+            "event_type": "focus",
+            "app_name": "winword.exe",
+            "window_title": "Project Draft",
+            "timestamp": now.isoformat()
+        })
+        client.post("/api/app-usage/", json={
+            "app_name": "winword.exe",
+            "duration_seconds": 600,
+            "device": "laptop",
+            "date": str(now.date()),
+            "timestamp": now.isoformat()
+        })
+
+        response = client.get("/api/dashboard?days=1")
+        assert response.status_code == 200
+        data = response.json()
+
+        current_app = data["current_activity"]["app"]
+        distribution_names = {item["app_name"] for item in data["app_usage"]}
+        assert current_app == "Word"
+        assert "Word" in distribution_names
+
     def test_in_progress_productive_session_estimated_score(self):
         """Issue 2: Verify in-progress session with productive window title results in estimated_score > 0."""
         # Clean current tables to isolate this test
@@ -543,5 +569,71 @@ class TestNewRegressions:
         assert len(chrome_items) == 2
         assert sum(item["duration_seconds"] for item in chrome_items) == 4500
         assert not any(item["app_name"] == "com.android.chrome" for item in data["app_usage"])
+
+    def test_cooldown_blocks_repeated_alert_dispatch(self, monkeypatch, tmp_path):
+        from services import notification_dispatch
+        from intervention_engine import InterventionEngine
+
+        monkeypatch.setattr(notification_dispatch, "STATE_FILE", tmp_path / "push_state.json")
+
+        calls = []
+
+        def fake_dispatch(*args, **kwargs):
+            calls.append((args, kwargs))
+
+        monkeypatch.setattr("intervention_engine.dispatch_notification", fake_dispatch)
+
+        engine = InterventionEngine(cooldown_minutes=30)
+        engine.trigger_alert("BURNOUT_WARNING", "HIGH", "first alert")
+        engine.trigger_alert("BURNOUT_WARNING", "HIGH", "second alert")
+
+        assert len(calls) == 1
+
+    def test_dead_push_subscription_is_pruned_on_410(self, monkeypatch):
+        from services import notification_dispatch
+
+        monkeypatch.setattr(notification_dispatch, "_get_push_settings", lambda: {
+            "public_key": "pub",
+            "private_key": "priv",
+            "subject": "mailto:test@example.com",
+        })
+
+        class FakeSubscription:
+            def __init__(self, endpoint: str, payload: str):
+                self.endpoint = endpoint
+                self.subscription_json = payload
+
+        deleted = []
+
+        def fake_delete(endpoint: str):
+            deleted.append(endpoint)
+
+        class GoneResponse:
+            status_code = 410
+
+        class GoneError(Exception):
+            def __init__(self):
+                self.response = GoneResponse()
+
+        calls = []
+
+        def fake_webpush(**kwargs):
+            calls.append(kwargs)
+            if kwargs["subscription_info"]["endpoint"] == "https://push.invalid/1":
+                raise GoneError()
+            return None
+
+        monkeypatch.setattr(notification_dispatch, "webpush", fake_webpush)
+        monkeypatch.setattr(notification_dispatch, "delete_push_subscription_by_endpoint", fake_delete)
+        import crud
+        monkeypatch.setattr(crud, "get_push_subscriptions", lambda session: [
+            FakeSubscription("https://push.invalid/1", '{"endpoint":"https://push.invalid/1","keys":{"p256dh":"a","auth":"b"}}'),
+            FakeSubscription("https://push.valid/2", '{"endpoint":"https://push.valid/2","keys":{"p256dh":"c","auth":"d"}}'),
+        ])
+
+        notification_dispatch.send_all({"type": "alert", "title": "Test", "body": "Body", "priority": "HIGH", "source": "intervention"})
+
+        assert calls
+        assert deleted == ["https://push.invalid/1"]
 
 
