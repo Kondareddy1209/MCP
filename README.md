@@ -1,281 +1,171 @@
-﻿<div align="center">
+﻿# it'syou — Intelligent Screen Time & Productivity Tracker
 
-<h1>
-  <img src="https://img.icons8.com/fluency/48/time-machine.png" width="36" style="vertical-align:middle"/> 
-  it'syou
-</h1>
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![MCP](https://img.shields.io/badge/MCP-Model_Context_Protocol-purple.svg?style=for-the-badge&logo=ai&logoColor=white)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
-<p><strong>Intelligent Screen Time & Productivity Tracker — powered by AI via MCP</strong></p>
-
-<p>
-  <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/></a>
-  <a href="https://fastapi.tiangolo.com"><img src="https://img.shields.io/badge/FastAPI-0.100+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI"/></a>
-  <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-25_Tools-7C3AED?style=for-the-badge&logo=anthropic&logoColor=white" alt="MCP"/></a>
-  <a href="https://www.sqlite.org"><img src="https://img.shields.io/badge/SQLite-Local_DB-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge" alt="License"/></a>
-</p>
-
-<p>
-  <a href="#-about">About</a> •
-  <a href="#-features">Features</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-getting-started">Getting Started</a> •
-  <a href="#-mcp-ai-integration">MCP / AI</a> •
-  <a href="#-real-world-use-cases">Use Cases</a> •
-  <a href="#-contributing">Contributing</a>
-</p>
-
-<br/>
-
-> **it'syou** is a local-first, AI-ready productivity system that passively tracks your desktop and mobile screen time, scores your focus, detects burnout, and lets your AI assistant (Claude, ChatGPT, Cursor, etc.) natively query and reason over your habits — all without any data ever leaving your machine.
-
-</div>
+**it'syou** is a local-first, AI-ready personal productivity telemetry platform. It silently monitors your desktop and mobile screen time in real time, computes advanced psychological metrics like focus efficiency and burnout risks, and exposes everything to your AI assistant (e.g., Claude Desktop, Cursor) via the **Model Context Protocol (MCP)**.
 
 ---
 
-## 🧠 About
+## 📐 System Architecture
 
-Most productivity apps make you do the work — manually starting timers, tagging sessions, filling in forms. **it'syou** takes a different approach: it watches silently, learns your patterns, and gives both *you* and your *AI assistant* a live window into how you actually spend your time.
+The following diagram illustrates how the `it'syou` ecosystem monitors user activity, processes data locally, and exposes interfaces to both the user and AI assistants:
 
-Built on top of the **Model Context Protocol (MCP)** — the open standard for connecting AI models to real-world tools — `it'syou` turns your personal usage data into a structured knowledge base that any MCP-compatible AI can query, summarize, and act on. Ask Claude *"How productive was I this week?"* and get a real, data-backed answer in seconds.
+```mermaid
+graph TD
+    User([User]) <-->|Interacts| OS[Operating System]
+    
+    subgraph Data Ingestion
+        Desktop[Desktop Tracker Daemon] -->|Mouse/Key activity & Window Focus| DB[(SQLite: itsyou_clean.db)]
+        Mobile[Mobile Sync via ADB] -->|Extracts Android Package Usage| DB
+    end
+    
+    OS -.->|Activity Events| Desktop
+    
+    subgraph Core Platform
+        DB <-->|SQLModel / ORM| FastAPI[FastAPI Backend: main.py]
+        FastAPI <-->|WebSocket / REST| WebUI[Web Dashboard SPA]
+        FastAPI -->|Push Alerts| BrowserNotification[Web Push Notification]
+    end
+    
+    subgraph AI Integration
+        MCP[MCP Server: mcp_server.py] <-->|Direct SQL Query & Cache Access| DB
+        MCP <-->|Control REST Hooks| FastAPI
+        LLM[Claude / Cursor / AI Client] <-->|JSON-RPC via stdio| MCP
+    end
 
-### Why it'syou?
-
-- 🔒 **100% local** — your data never leaves your machine. No cloud. No subscriptions.
-- 🤖 **AI-native** — the first screen-time tracker designed to work *with* AI assistants, not just report numbers to a dashboard.
-- 🧩 **Extensible** — open source, modular Python backend. Add your own MCP tools, routers, and classifiers.
-- 📱 **Cross-device** — unifies laptop + Android phone tracking in one timeline.
-- 🔔 **Proactive** — doesn't just track; it intervenes. Smart alerts notify you before distraction becomes a habit.
-
----
-
-## ✨ Features
-
-### 📊 Real-Time Tracking
-- Passive background monitoring of the active window (app name + window title)
-- Event-driven session tracking: focus, blur, idle, and context-switch detection
-- WebSocket-powered live dashboard — updates every second without refresh
-
-### 🧠 Productivity Intelligence
-- **Productivity Score (0–100)** based on classified app usage
-- **Focus Efficiency %** — measures how long you stay in one context
-- **Burnout Index (0–100)** — behavioral comparison vs. your 7-day baseline
-- **Distraction Opportunity Cost** — quantifies time lost to distracting apps in hours or currency
-- **Peak Hour Analysis** — identifies when you're most and least productive
-
-### 🤖 MCP / AI Integration (25 Tools)
-Connect any MCP-compatible AI assistant and ask questions like:
-- *"What's my burnout risk right now?"*
-- *"Which app wasted the most time today?"*
-- *"Compare my productivity this week vs. last week."*
-- *"Log a focus session for the next 45 minutes."*
-
-### 🔔 Smart Interventions
-- Adaptive intervention engine with configurable thresholds
-- Web Push notifications (VAPID) — works on desktop browsers + mobile
-- Smart cooldown: prevents notification fatigue with per-alert rate limiting
-- Detects: excessive distraction, context-switch overload, late-night overwork, burnout risk
-
-### 📱 Mobile Sync (Android ADB)
-- Sync Android screen time directly via USB debug bridge
-- Merges phone + laptop data into a unified daily timeline
-- Per-app breakdowns from both devices in one dashboard
-
-### 💰 Expense Tracker
-- Log daily expenses by category
-- Visualize spending patterns alongside productivity data
-
-### 🏷️ App Classification
-- Auto-classifies apps as **Productive / Neutral / Distracting** using regex heuristics
-- Fully customizable — override any classification manually via the dashboard
-- Supports both desktop process names and Android package names
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        it'syou System                          │
-│                                                                 │
-│  ┌──────────────┐    ┌─────────────────┐    ┌───────────────┐  │
-│  │   Desktop    │    │  FastAPI Server │    │  MCP Server   │  │
-│  │   Tracker    │───▶│   (main.py)     │◀───│(mcp_server.py)│  │
-│  │ (background) │    │  REST + WS API  │    │  25 AI Tools  │  │
-│  └──────────────┘    └────────┬────────┘    └───────┬───────┘  │
-│                               │                     │          │
-│  ┌──────────────┐    ┌────────▼────────┐    ┌───────▼───────┐  │
-│  │ Android ADB  │    │  SQLite DB      │    │  AI Assistant │  │
-│  │ Mobile Sync  │───▶│(itsyou_clean.db)│    │ Claude/GPT/   │  │
-│  └──────────────┘    └────────┬────────┘    │ Cursor etc.   │  │
-│                               │             └───────────────┘  │
-│  ┌──────────────┐    ┌────────▼────────┐                       │
-│  │ Intervention │    │  Web Dashboard  │                       │
-│  │   Engine     │    │  (frontend/)    │                       │
-│  └──────────────┘    └─────────────────┘                       │
-└─────────────────────────────────────────────────────────────────┘
+    User <-->|Views WebUI| WebUI
+    User <-->|Chat Console| LLM
 ```
 
 ---
 
-## 🗂️ Repository Structure
+## 🗂️ Project Directory Tree
 
 ```
-it'syou/
-├── main.py                     # FastAPI app — REST API + static frontend
-├── mcp_server.py               # MCP server — 25 tools, 6 resources, 6 prompts
-├── models.py                   # SQLModel schema (AppUsage, Events, Expenses …)
-├── crud.py                     # Database CRUD with deduplication logic
-├── classification.py           # App normalization + productivity classification
-├── intervention_engine.py      # Adaptive alert engine (burnout, distraction)
-├── db.py                       # Database engine + session factory
-├── ws_manager.py               # WebSocket connection manager
-├── config.json                 # Runtime feature flags
-├── requirements.txt            # Python dependencies
-│
-├── services/
-│   ├── analytics.py            # Cached analytics pipeline (single source of truth)
-│   ├── notification_dispatch.py# VAPID Web Push dispatcher
-│   ├── behavior_engine.py      # Burnout & behavior scoring engine
-│   └── session_engine.py       # Session lifecycle management
-│
-├── routers/
-│   ├── app_usage.py            # /api/app-usage/ endpoints
-│   ├── analytics.py            # /api/dashboard/ endpoints
-│   ├── events.py               # /api/events/ endpoints
-│   ├── expenses.py             # /api/expenses/ endpoints
-│   └── ...                     # additional routers
-│
-├── frontend/
-│   ├── index.html              # Main dashboard HTML
-│   ├── app.js                  # Frontend app logic
-│   ├── components/
-│   │   ├── dashboard.js        # Dashboard component
-│   │   └── charts.js           # Chart rendering
-│   ├── manifest.json           # PWA manifest
-│   ├── sw.js                   # Service Worker (offline + push)
-│   └── icon.svg                # App icon
-│
-├── scripts/
-│   ├── mobile_adb_sync.py      # Android ADB screen time sync
-│   └── generate_vapid_keys.py  # VAPID key generation for push notifications
-│
-├── tests/
-│   ├── test_extended.py        # Core integration tests
-│   └── test_mobile_adb_sync.py # ADB sync tests
-│
-└── docs/
-    └── mobile_adb_setup.md     # Step-by-step Android ADB setup guide
+MCP-server/
+├── .vscode/               # Workspace settings
+├── docs/                  # System documentation
+│   └── mobile_adb_setup.md # Guide to setting up Android ADB sync
+├── frontend/              # Dashboard Single Page Application (SPA)
+│   ├── components/        # UI modules (charts, widgets)
+│   ├── app.js             # Client state, WebSocket management
+│   ├── index.html         # Application viewport
+│   ├── manifest.json      # Progressive Web App configuration
+│   └── sw.js              # Service Worker for push notification interception
+├── routers/               # FastAPI route definitions (REST endpoints)
+├── scripts/               # Synchronization & automation utilities
+│   ├── generate_vapid_keys.py # VAPID setup helper for Web Push
+│   └── mobile_adb_sync.py # Device log ingestion automation
+├── services/              # Core business intelligence & pipelines
+│   ├── analytics.py       # Aggregation caching & database query pipeline
+│   ├── behavior_engine.py # Focus efficiency & burnout index calculations
+│   ├── notification_dispatch.py # Push notification pipeline
+│   └── session_engine.py  # Event reconstruction engine
+├── tests/                 # Test coverage suite
+├── main.py                # Platform entrance, background threads & REST daemon
+├── mcp_server.py          # Model Context Protocol wrapper
+├── models.py              # SQLModel schema declarations (SQLite mapping)
+└── db.py                  # Local database connections & indexing
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🤖 Model Context Protocol (MCP) Integration
 
-### Prerequisites
+The **Model Context Protocol** enables seamless integration between AI clients (like Claude Desktop) and this repository's local datasets. This allows you to chat naturally with your AI assistant regarding your habits, productivity, and focus intervals.
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| Python | 3.11+ | Required |
-| pip | latest | Required |
-| Android phone | Any | Optional — for mobile sync |
-| ADB (Android Debug Bridge) | Latest | Optional — for mobile sync |
+### 🛠️ Exposed MCP Tools
 
-### 1. Clone & Install
+The server exposes 30+ tools for reading status, configuring settings, and requesting analytics:
+
+| Tool | Parameters | Description |
+|------|------------|-------------|
+| `get_dashboard_metrics` | `days: int` | Fetches complete dashboard aggregates. |
+| `get_current_activity` | None | Returns the active application, duration, and device. |
+| `get_productivity_score`| `days: int` | Compares verified vs. estimated productivity metrics. |
+| `get_focus_efficiency` | `days: int` | Audits context switching and deep focus sessions. |
+| `get_burnout_index` | `days: int` | Detects physical overwork/exhaustion indices (0-100). |
+| `get_distraction_cost` | `days: int` | Computes opportunity cost wasted on distractions. |
+| `get_behavioral_insights` | `days: int` | Reports peak active hours and primary applications. |
+| `search_usage` | `app_name: str`| Searches application history logs for a pattern match. |
+| `explain_productivity_change`| `question: str, days: int` | Fully deterministic analysis explaining productivity trends. |
+| `classify_application` | `app_name: str, classification: str` | Updates an app's focus tag (`productive`, `neutral`, `distracting`). |
+| `pause_tracker` / `resume_tracker`| None | Controls the background activity hook state. |
+
+### 📂 Shared Resources
+
+Resources are dynamic files/JSON outputs made accessible directly to the LLM context:
+
+- `dashboard://current` — Today's complete live dashboard snapshot.
+- `metrics://today` — Key KPI values (productivity, burnout, distraction cost).
+- `events://recent` — Logs of the last 20 keyboard, mouse, focus, or idle state changes.
+- `devices://status` — Active device list and tracking status daemon reports.
+- `classifications://all` — Complete list of custom classification tags.
+
+### 📝 Prompt Templates
+
+Preconfigured prompts standardizing complex AI workflows:
+- `get_prompt_most_distracted` ("What distracted me the most today?")
+- `get_prompt_summarize_productivity` ("Summarize today's productivity.")
+- `get_prompt_weekly_report` ("Generate a weekly behavioral report.")
+- `get_prompt_app_switches` ("How many times did I switch applications?")
+
+---
+
+## 🌍 Real-World Use Cases
+
+* **Passive Time Tracking & Invoicing:** No start/stop buttons. Track precise hours on tools like VS Code, Figma, or Word, and isolate them from non-work activities.
+* **Smart Interventions:** Receives alerts if you spend consecutive hours on social media or news feeds without taking breaks.
+* **Burnout Prevention:** If the `BehaviorEngine` detects your workdays are regularly stretching beyond 10+ hours or that you're working late into the night, it triggers structural recommendations to enforce rest.
+* **Local-First, Privacy-Preserving Analytics:** Unlike cloud trackers, all keystrokes, application titles, and logs reside 100% locally. Zero telemetry leaves your machine.
+
+---
+
+## 🚀 Installation & Running
+
+### 1. Repository Setup
 
 ```bash
 # Clone the repository
 git clone https://github.com/Kondareddy1209/MCP.git
 cd MCP
 
-# Create a virtual environment
+# Configure a virtual environment
 python -m venv .venv
+.venv\Scripts\activate   # Windows
+# source .venv/bin/activate  # Linux/macOS
 
-# Activate it
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS / Linux
-
-# Install all dependencies
+# Install package dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Run the Backend Server
+### 2. Start the Backend API & GUI Dashboard
 
 ```bash
 python -m uvicorn main:app --reload --port 8000
 ```
+Visit [http://localhost:8000](http://localhost:8000) to view the client-side dashboard.
 
-Open **[http://localhost:8000](http://localhost:8000)** to view the live dashboard.
+### 3. Launch the MCP Server (For Claude Desktop/Cursor Integration)
 
-### 3. Run the MCP Server
-
+Run the Python wrapper directly via:
 ```bash
 python mcp_server.py
 ```
 
-Then connect any MCP-compatible client (Claude Desktop, Cursor, etc.) to this server.
-
-### 4. (Optional) Enable Additional Features
-
-Edit `config.json`:
-
-```json
-{
-  "run_intervention_engine": true,
-  "run_mobile_sync": true
-}
-```
-
-| Flag | Default | Effect |
-|------|---------|--------|
-| `run_intervention_engine` | `false` | Enables real-time burnout & distraction alerts |
-| `run_mobile_sync` | `false` | Enables Android ADB phone sync |
-
-### 5. (Optional) Set Up Push Notifications
-
-```bash
-# Generate VAPID keys for Web Push
-python scripts/generate_vapid_keys.py
-```
-
-### 6. (Optional) Set Up Mobile Sync
-
-See [`docs/mobile_adb_setup.md`](docs/mobile_adb_setup.md) for full Android ADB setup instructions.
-
----
-
-## 🤖 MCP / AI Integration
-
-`it'syou` implements the **Model Context Protocol** — the open standard by Anthropic that lets AI assistants call real tools and access structured data sources.
-
-### Available MCP Tools (25 total)
-
-| Tool | Description |
-|------|-------------|
-| `get_dashboard_metrics` | Full analytics for last N days |
-| `get_current_activity` | Currently active app and focus durations |
-| `get_productivity_score` | Productivity score + breakdown |
-| `get_focus_efficiency` | Focus %, longest session, context switches |
-| `get_burnout_index` | Burnout risk score (0–100) |
-| `get_distraction_cost` | Opportunity cost from distraction |
-| `get_behavioral_insights` | Peak hours, top apps, switch analysis |
-| `get_recent_events` | Raw focus/blur/idle event log |
-| `get_screen_time_history` | Daily/hourly screen time records |
-| `classify_app` | Get or set an app's productivity category |
-| `add_expense` | Log a new expense entry |
-| `get_expenses` | Retrieve expense history |
-| `...` | + 13 more tools for full system control |
-
-### Connecting Claude Desktop
-
-Add this to your Claude Desktop MCP config:
+To configure with your **Claude Desktop Client**, append the following configuration to `%APPDATA%/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "itsyou": {
+    "itsyou-server": {
       "command": "python",
-      "args": ["C:/path/to/MCP/mcp_server.py"]
+      "args": [
+        "C:/Users/Konda Reddy/OneDrive/Desktop/MCP-server/mcp_server.py"
+      ]
     }
   }
 }
@@ -283,94 +173,25 @@ Add this to your Claude Desktop MCP config:
 
 ---
 
-## 🌍 Real-World Use Cases
+## ⚙️ Feature Configuration
 
-| Who | How they use it'syou |
-|-----|---------------------|
-| **Developers** | Track IDE vs. browser vs. Slack time; identify context-switch overload |
-| **Students** | Monitor study vs. entertainment balance; get focus alerts |
-| **Freelancers** | Log billable hours per app; export productivity reports |
-| **Remote workers** | Prove work hours to clients with data-backed productivity scores |
-| **Deep work practitioners** | Get notified when focus sessions break; track longest focus streaks |
-| **AI power users** | Ask Claude/GPT to analyze habits and suggest schedule improvements |
-| **Parents** | Monitor their own device usage as a digital wellness practice |
+Enable/disable modules inside the local `config.json` configuration file:
 
----
-
-## 🚨 Problems it'syou Solves
-
-| Problem | Solution |
-|---------|----------|
-| *"Where did my day go?"* | Passive auto-tracking — no timers, no manual input |
-| Mindless app switching | Detects context-switch overload and fires alerts |
-| No cross-device visibility | Unifies laptop + Android phone in one timeline |
-| Burnout going unnoticed | Compares today vs. 7-day behavioral baseline |
-| AI assistants can't see your habits | MCP server exposes your data as structured AI tools |
-| Cloud tracker privacy concerns | 100% local SQLite — zero telemetry, zero cloud |
-| Notification overload | Per-alert cooldown prevents duplicate alerts |
-| Inaccurate timezone in logs | All data stored in IST (Asia/Kolkata) for local accuracy |
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| **Backend** | Python 3.11+, FastAPI, Uvicorn |
-| **Database** | SQLite (local) via SQLModel |
-| **AI Protocol** | Model Context Protocol (MCP) |
-| **Frontend** | HTML5, Vanilla JS, CSS3, WebSocket |
-| **PWA** | Service Worker, Web App Manifest |
-| **Mobile** | Android Debug Bridge (ADB) |
-| **Push Notifications** | Web Push API, VAPID (`pywebpush`, `py-vapid`) |
-| **Analytics** | Pandas, in-memory analytics cache |
-| **Timezone** | IST (Asia/Kolkata) throughout |
-
----
-
-## 🧪 Running Tests
-
-```bash
-# Run all tests
-python -m pytest tests/
-
-# Run specific test file
-python -m pytest tests/test_extended.py -v
+```json
+{
+  "run_intervention_engine": true,
+  "run_mobile_sync": true,
+  "https": {
+    "use_https": false
+  }
+}
 ```
 
----
-
-## 🤝 Contributing
-
-Contributions are very welcome! Here's how to get started:
-
-1. **Fork** the repository
-2. **Create** your feature branch: `git checkout -b feature/your-feature`
-3. **Commit** your changes: `git commit -m "feat: add your feature"`
-4. **Push** to the branch: `git push origin feature/your-feature`
-5. **Open a Pull Request**
-
-Please follow the existing code style and add tests where applicable.
+* **`run_intervention_engine`**: Triggers desktop push notifications on critical overwork/distraction patterns.
+* **`run_mobile_sync`**: Launches ADB services to automatically query connected Android phones for application telemetry.
 
 ---
 
-## 📄 License
+## 🛡️ License
 
-This project is licensed under the **MIT License** — free to use, modify, and distribute.
-
----
-
-## 👤 Author
-
-**Konda Reddy**
-- GitHub: [@Kondareddy1209](https://github.com/Kondareddy1209)
-
----
-
-<div align="center">
-
-**⭐ Star this repo if you find it useful!**
-
-*Built with ❤️ for developers who want to own their time — and their data.*
-
-</div>
+Distributed under the MIT License. See `LICENSE` for more information.
