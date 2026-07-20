@@ -7,14 +7,18 @@ from datetime import date, datetime, timedelta, time
 import json
 import os
 from typing import List, Dict, Any, Tuple
-import pytz
+
+try:
+    import pytz
+except Exception:
+    pytz = None
 
 from models import (
     Expense, AppUsage, DailyScreenTime, AppClassification, UsageEvent,
     ProductivityMetrics, FocusMetrics, BurnoutMetrics, DistractionCostMetrics,
     BehavioralInsightsMetrics
 )
-from classification import auto_classify
+from classification import auto_classify, normalize_app_name
 from services.session_engine import SessionEngine, TrackedSession
 from services.behavior_engine import BehaviorEngine
 
@@ -24,6 +28,12 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.j
 _DASHBOARD_CACHE = {}
 
 def get_ist_now() -> datetime:
+    if pytz is not None:
+        try:
+            ist = pytz.timezone("Asia/Kolkata")
+            return datetime.now(ist)
+        except Exception:
+            pass
     try:
         ist = pytz.timezone("Asia/Kolkata")
         return datetime.now(ist)
@@ -298,7 +308,7 @@ def compute_dashboard_summary(session: Session, days: int) -> Dict[str, Any]:
     chart_usage = []
     for app_name, sec in app_durations.items():
         chart_usage.append({
-            "app_name": app_name,
+            "app_name": normalize_app_name(app_name),
             "duration_seconds": sec
         })
 
@@ -309,7 +319,7 @@ def compute_dashboard_summary(session: Session, days: int) -> Dict[str, Any]:
         app_clean = app.lower().strip()
         titles = app_window_titles.get(app, [])
         cl = classifications.get(app_clean) or auto_classify(app, " ".join(titles))
-        item = {"app_name": app, "duration_seconds": int(sec)}
+        item = {"app_name": normalize_app_name(app), "duration_seconds": int(sec)}
         if cl == "productive":
             top_productive_apps.append(item)
         elif cl == "distracting":
@@ -354,7 +364,7 @@ def compute_dashboard_summary(session: Session, days: int) -> Dict[str, Any]:
             current_activity["is_stale"] = True
 
         if not is_idle:
-            current_activity["app"] = last_event.app_name or "Unknown"
+            current_activity["app"] = normalize_app_name(last_event.app_name or "Unknown")
             current_activity["device"] = "laptop"
             current_activity["duration"] = max(0, dur)
         else:
@@ -405,7 +415,7 @@ def compute_dashboard_summary(session: Session, days: int) -> Dict[str, Any]:
         } for e in events[:20]],
         "app_usage": [{
             "id": u.id,
-            "app_name": u.app_name,
+            "app_name": normalize_app_name(u.app_name),
             "duration_seconds": u.duration_seconds,
             "device": u.device,
             "device_type": u.device_type,
