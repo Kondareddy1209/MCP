@@ -14,7 +14,29 @@ from datetime import date, timedelta, datetime, timezone
 
 from db import init_db, get_session
 from routers import expenses, app_usage, screen_time, classifications, analytics, events
-from models import Expense, AppUsage, DailyScreenTime, AppClassification, ProductivityMetricsCache, UsageEvent
+from models import Expense, AppUsage, DailyScreenTime, AppClassification, ProductivityMetricsCache, UsageEvent, PushSubscription
+
+
+def _load_runtime_config() -> dict:
+    try:
+        if os.path.exists("config.json"):
+            import json as _json
+            with open("config.json", "r", encoding="utf-8") as handle:
+                return _json.load(handle)
+    except Exception:
+        pass
+    return {}
+
+
+def _resolve_https_settings() -> tuple[str | None, str | None]:
+    cfg = _load_runtime_config().get("https", {})
+    if not cfg.get("use_https"):
+        return None, None
+    cert_file = cfg.get("certfile")
+    key_file = cfg.get("keyfile")
+    if cert_file and key_file and os.path.exists(cert_file) and os.path.exists(key_file):
+        return cert_file, key_file
+    return None, None
 
 # ─── IST helper ─────────────────────────────────────────────────────────
 try:
@@ -79,6 +101,19 @@ async def lifespan(app_: FastAPI):
             print("[startup] Intervention engine disabled (set run_intervention_engine=true in config.json to enable).")
     except Exception as e:
         print(f"[startup] Intervention engine start error: {e}")
+
+    # ── Auto-start mobile ADB sync daemon (config-gated) ──────────────────
+    try:
+        if _cfg.get("run_mobile_sync", False):
+            from scripts.mobile_adb_sync import MobileAdbSyncDaemon
+            _mobile_sync = MobileAdbSyncDaemon(backend_api="http://localhost:8000/api")
+            _mobile_thread = Thread(target=_mobile_sync.run, daemon=True)
+            _mobile_thread.start()
+            print("[startup] Mobile ADB sync daemon started.")
+        else:
+            print("[startup] Mobile ADB sync disabled (set run_mobile_sync=true in config.json to enable).")
+    except Exception as e:
+        print(f"[startup] Mobile ADB sync start error: {e}")
 
     yield
     # shutdown: daemon threads die with the process; nothing to clean up here
@@ -160,6 +195,8 @@ def explain_endpoint(
 
 from fastapi import WebSocket, WebSocketDisconnect
 from ws_manager import manager
+from crud import upsert_push_subscription
+from services.notification_dispatch import get_vapid_public_key
 
 @app.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):
@@ -181,6 +218,13 @@ class IngestPayload(BaseModel):
     app: str
     timestamp: str
     duration: int
+
+
+class PushSubscriptionPayload(BaseModel):
+    endpoint: str
+    keys: dict
+    userAgent: str | None = None
+    device: str = "mobile"
 
 @app.get("/api/last-active-app")
 def get_last_active_app(session: Session = Depends(get_session)):
@@ -275,6 +319,25 @@ def ingest_data(payload: IngestPayload, session: Session = Depends(get_session))
     from services.analytics import invalidate_analytics_cache
     invalidate_analytics_cache()
     return {"status": "success", "id": created.id}
+
+
+@app.get("/api/push/vapid-public-key")
+def get_push_public_key():
+    return {"publicKey": get_vapid_public_key()}
+
+
+@app.post("/api/push/subscribe")
+def subscribe_push(payload: PushSubscriptionPayload, session: Session = Depends(get_session)):
+    stored = upsert_push_subscription(
+        session,
+        PushSubscription(
+            endpoint=payload.endpoint,
+            subscription_json=payload.json(),
+            user_agent=payload.userAgent,
+            device=payload.device,
+        ),
+    )
+    return {"status": "success", "id": stored.id}
 
 
 # ─── Alerts endpoint ──────────────────────────────────────────────────────
@@ -373,3 +436,17 @@ def read_root():
     return {"message": "it'syou API v2.0 — visit /docs for API reference"}
 
 app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    certfile, keyfile = _resolve_https_settings()
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        ssl_certfile=certfile,
+        ssl_keyfile=keyfile,
+    )
