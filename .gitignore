@@ -12,3 +12,12 @@ pip-log.txt
 pip-delete-this-directory.txt
 *.log
 antigravity.db
+
+# VAPID keys
+vapid_keys.json
+
+# SQLite databases and temp files
+*.db
+*.db-shm
+*.db-wal
+
