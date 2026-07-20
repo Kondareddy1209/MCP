@@ -13,6 +13,7 @@ from typing import List, Dict, Any
 from db import engine
 from models import Expense, DailyScreenTime, AppClassification, UsageEvent, AppUsage
 import crud
+from classification import normalize_app_name
 from services.analytics import get_cached_dashboard_summary, get_ist_now, auto_classify, explain_productivity_change as _explain_change
 
 mcp = FastMCP("it'syou")
@@ -109,7 +110,7 @@ def get_recent_events(limit: int = 20) -> str:
         result = [{
             "event_type": e.event_type,
             "timestamp": e.timestamp.isoformat(),
-            "app_name": e.app_name,
+            "app_name": normalize_app_name(e.app_name) if e.app_name else None,
             "window_title": e.window_title
         } for e in events]
         return json.dumps(result, indent=2)
@@ -155,7 +156,7 @@ def search_usage(app_name: str) -> str:
     with Session(engine) as session:
         usages = session.exec(select(AppUsage).where(AppUsage.app_name.like(f"%{app_name}%")).limit(30)).all()
         result = [{
-            "app_name": u.app_name,
+            "app_name": normalize_app_name(u.app_name),
             "duration_seconds": u.duration_seconds,
             "device": u.device,
             "timestamp": u.timestamp.isoformat() if u.timestamp else None
@@ -168,7 +169,7 @@ def search_sessions(session_id: str) -> str:
     with Session(engine) as session:
         usages = session.exec(select(AppUsage).where(AppUsage.session_id == session_id)).all()
         result = [{
-            "app_name": u.app_name,
+            "app_name": normalize_app_name(u.app_name),
             "duration_seconds": u.duration_seconds,
             "timestamp": u.timestamp.isoformat() if u.timestamp else None,
             "activity_score": u.activity_score
@@ -202,7 +203,7 @@ def classify_application(app_name: str, classification: str) -> str:
     class_clean = classification.lower().strip()
     if class_clean not in ["productive", "distracting", "neutral"]:
         return "Error: classification must be 'productive', 'distracting', or 'neutral'."
-    ac = AppClassification(app_name=app_name, classification=class_clean)
+    ac = AppClassification(app_name=normalize_app_name(app_name), classification=class_clean)
     with Session(engine) as session:
         crud.upsert_classification(session, ac)
         # invalidate cache
