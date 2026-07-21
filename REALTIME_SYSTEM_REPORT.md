@@ -2,6 +2,7 @@
 
 ## 1. System Architecture
 
+
 ```
 [Windows Desktop Tracker (Daemon Thread)]
        │
